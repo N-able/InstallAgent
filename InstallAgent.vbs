@@ -60,6 +60,8 @@
 '						Added 'Checking files' bit to remove confusing delay at that stage. No spinner though, unfortunately
 '						This is the final release by Tim :o(
 '						First version committed to git - Jon Czerwinski
+' 4.01 20151109		-	Corrected agent version zombie check
+'
 
 
 Option Explicit
@@ -704,14 +706,15 @@ Function GETAGENTPATH
 	
 	
 	' Check to see if this script could potentially downgrade the agent, which N-central doesn't like AT ALL :-(
-	WRITETOCONSOLE("Checking downgrade ............... ")
-	objShell.LogEvent 1, "The agent installer script is performing a downgrade check"
+	WRITETOCONSOLE("Checking downgrade ... ")
 	If strAgentBin <> "" Then
-		' Downgrade alert!!  Terminate now!!
-		If ConvertToDecimal(objFSO.GetFileVersion(Right( Left(strAgentBin, Len(strAgentBin)-1), Len(strAgentBin)-2))) > ConvertToDecimal(strRequiredAgent) Then
-			objShell.LogEvent 1, "The agent installer script found that this device already has agent version " & objFSO.GetFileVersion(Right( Left(strAgentBin, Len(strAgentBin)-1), Len(strAgentBin)-2)) & " installed which is newer than the version available for installing, which is " & strRequiredAgent & ".  If maintenance was carried out on this device it could potentially effectively downgrade the agent which would result in a zombie device.  Therefore, this script will now terminate."
+		If IsDowngrade(objFSO.GetFileVersion(Mid(strAgentBin,2, Len(strAgentBin)-2)), strRequiredAgent) Then
+			objShell.LogEvent 1, "The agent installer script found that this device already has agent version " & objFSO.GetFileVersion(Mid(strAgentBin,2, Len(strAgentBin)-2)) & " installed which is newer than the version available for installing, which is " & strRequiredAgent & ".  If maintenance was carried out on this device it could potentially effectively downgrade the agent which would result in a zombie device.  Therefore, this script will now terminate."
 			WRITETOCONSOLE("failed!" & vbCRLF)
 			DIRTYQUIT 6
+		Else
+			objShell.LogEvent 0, "The agent installer found that the installed agent is suitable for maintenance."
+			WRITETOCONSOLE("done!" & vbCRLF)
 		End If
 	End If
 
@@ -1004,19 +1007,56 @@ Sub WRITETOCONSOLE(strMessage)
 End Sub
 
 
+' ***********************************************************************
+' Function - IsDowngrade- Compares current and proposed agent versions
+'	and returns whether the proposed version would downgrade the current
+'	version installed
+' ***********************************************************************
+Function IsDowngrade(strCurrent, strProposed)
+	Dim bValid
+	Dim currMajor, currMinor, currSP, currBuild
+	Dim propMajor, propMinor, propSP, propBuild
+	Dim strSplit
+	
+	strSplit = Split(strCurrent, ".")
+	currMajor = CInt(strSplit(0))
+	currMinor = CInt(strSplit(1))
+	currSP = CInt(strSplit(2))
+	currBuild = CInt(strSplit(3))
+	
+	strSplit = Split(strProposed, ".")
+	propMajor = CInt(strSplit(0))
+	propMinor = CInt(strSplit(1))
+	propSP = CInt(strSplit(2))
+	propBuild = CInt(strSplit(3))
+	
+	bValid = True
 
-' *****************************************************************************************************************
-' Sub Function - ConvertToDecimal - Converts a string containing numbers and dots to a decimal value for comparison
-' *****************************************************************************************************************
-Function CONVERTTODECIMAL(strString)
-	strDecimal = ""
-	For count = 1 To Len(strString)
-		If Mid(strString, count, 1) <> "." Then 
-			strDecimal = strDecimal & Mid(strString, count, 1)
+	If propMajor < currMajor Then
+		bValid = False
+	Else
+		If propMajor = currMajor Then
+			If propMinor < currMinor Then
+				bValid = False
+			Else
+				If propMinor = currMinor Then
+					If propSP < currSP Then
+						bValid = False
+					Else
+						If propSP = currSP Then
+							If propBuild < currBuild Then
+								bValid = False
+							End If
+						End If
+					End If
+				End If
+			End If
 		End If
-	Next
-	CONVERTTODECIMAL = CLng(strDecimal)
+	End If
+	
+	IsDowngrade = Not bValid
 End Function
+
 
 ' *****************************************************************************
 ' Function - WriteRegValue - Writes a value into the Registry with minimal fuss
