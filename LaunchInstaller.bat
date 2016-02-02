@@ -32,7 +32,7 @@ color 1f && cls
 title :: %EVENT_SOURCE% ::
 
 
-if NOT EXIST \\%DOMAIN%\netlogon\agent\installagent.vbs ( eventcreate /L APPLICATION /T ERROR /ID 998 /SO "%EVENT_SOURCE%" /D "The InstallAgent.vbs could not be reached on the network." 1>nul 2>nul
+if NOT EXIST \\%DOMAIN%\netlogon\%AGENT_FOLDER%\installagent.vbs ( eventcreate /L APPLICATION /T ERROR /ID 998 /SO "%EVENT_SOURCE%" /D "The InstallAgent.vbs could not be reached on the network." 1>nul 2>nul
 							) else ( %windir%\system32\cscript.exe \\%DOMAIN%\netlogon\%AGENT_FOLDER%\InstallAgent.vbs //nologo /site:%SITE_CODE% /mode:%MODE% )
 
 set IAEXITCODE=%errorlevel%
