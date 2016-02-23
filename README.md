@@ -149,7 +149,7 @@ will run in a special interactive mode. If you run it in a command
 prompt it runs in a hands-free mode.
 
 *CSCRIPT*
-[*\\\\DOMAIN\\NETLOGON\\INSTALLAGENT.VBS*](file:///\\DOMAIN\NETLOGON\INSTALLAGENT.VBS)
+[*\\\\DOMAIN\\NETLOGON\\AGENT\\INSTALLAGENT.VBS*](file:///\\DOMAIN\NETLOGON\INSTALLAGENT.VBS)
 */site:XXX /mode:STARTUP*
 
 -   On a device that doesn’t have the agent or .NET 4 installed, the
