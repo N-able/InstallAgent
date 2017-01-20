@@ -121,33 +121,20 @@ To do this, perform the following change in N-central:
 
 
 
-These steps assume that you are using the defaults given in the table above. If you have amended any of the configuration file values, remember to use your own values in these steps.
-
+These steps assume that you are using the defaults given in the tables above. If you have amended any of the configuration file values, remember to use your own values in these steps.
 
 
 1. On a domain controller, open the NETLOGON folder and create a folder called AGENT
 
-
-
-2. Copy INSTALLAGENT.VBS and LAUNCHINSTALLER.BAT into the AGENT folder
-
-
+2. Copy INSTALLAGENT.VBS, your customized INSTALLAGENT.INI, and LAUNCHINSTALLER.BAT into the AGENT folder
 
 3. In N-central, go to the SO level and click the DOWNLOAD AGENT/PROBE SOFTWARE link
 
-
-
 4. Download the WINDOWS AGENT file into the AGENT folder, renaming it as SOAGENTSETUP.EXE
-
-
 
 5. Download the .NET FRAMEWORK 4 – X64 file into the AGENT folder, leaving the filename unchanged
 
-
-
 6. Download the Windows Imaging Component files, *wic\_x64\_enu.exe,* and *wic\_x86\_enu.exe,* from https://www.microsoft.com/en-us/download/details.aspx?id=1385 into the AGENT folder
-
- 
 
 7. Copy the AGENTCLEANUP4.EXE utility into the AGENT folder
 
@@ -157,29 +144,19 @@ You should now have a folder called AGENT that contains:
 
 
 
--   INSTALLAGENT.VBS
+-   INSTALLAGENT.VBS 
 
-
+-   INSTALLAGENT.INI
 
 -   LAUNCHINSTALLER.BAT
 
-
-
 -   DOTNET40\_FULL\_X86\_X64.EXE
-
-
 
 -   SOAGENTSETUP.EXE
 
-
-
 -   WIC\_X64\_ENU.EXE
 
-
-
 -   WIC\_X32\_ENU.EXE
-
-
 
 -   AGENTCLEANUP4.EXE
 
