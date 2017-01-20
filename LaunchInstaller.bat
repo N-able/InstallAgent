@@ -6,14 +6,12 @@ rem This file should be called by a GPO with three parameters:
 
 rem   SITE_CODE
 rem   DOMAIN_NAME or AUTO
-rem   STARTUP or SHUTDOWN
-rem eg. 100 ORCHID STARTUP
+rem eg. 100 ORCHID
 
 
 
 set SITE_CODE=%1%
 set DOMAIN=%2%
-set MODE=%3%
 
 
 rem Change the name of the source if required
@@ -33,7 +31,7 @@ title :: %EVENT_SOURCE% ::
 
 
 if NOT EXIST \\%DOMAIN%\netlogon\%AGENT_FOLDER%\installagent.vbs ( eventcreate /L APPLICATION /T ERROR /ID 998 /SO "%EVENT_SOURCE%" /D "The InstallAgent.vbs could not be reached on the network." 1>nul 2>nul
-							) else ( %windir%\system32\cscript.exe \\%DOMAIN%\netlogon\%AGENT_FOLDER%\InstallAgent.vbs //nologo /site:%SITE_CODE% /mode:%MODE% )
+							) else ( %windir%\system32\cscript.exe \\%DOMAIN%\netlogon\%AGENT_FOLDER%\InstallAgent.vbs //nologo /site:%SITE_CODE% )
 
 set IAEXITCODE=%errorlevel%
 if %IAEXITCODE% NEQ 10 eventcreate /L APPLICATION /SO "%EVENT_SOURCE%" /ID 998 /D "The %EVENT_SOURCE% script exited unexpectedly on this device.  This may be causing the agent to not install or upgrade properly.  The exit code was %IAEXITCODE%." /T ERROR 1>nul 2>nul
