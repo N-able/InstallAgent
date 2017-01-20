@@ -1,16 +1,10 @@
-InstallAgent
-============
+# InstallAgent
 
-This script is intended as a replacement for the stock N-central group
-policy installer script as provided by N-able. It is not supported by
-N-able, so please do not contact their support department regarding any
-problems or questions about this script. In addition, it is not
-supported by GCI Managed IT.
+This script is intended as a replacement for the stock N-central group policy installer script as provided by N-able. It is not supported by N-able, so please do not contact their support department regarding any problems or questions about this script. In addition, it is not supported by GCI Managed IT.
 
 The script provides:
 
--   Automatic installation of Microsoft .NET4 and Windows Imaging
-    Components on devices that do not have it installed
+-   Automatic installation of Microsoft .NET4 and Windows Imaging Components on devices that do not have it installed
 
 -   Automatic installation of the N-able agent
 
@@ -24,53 +18,39 @@ The script provides:
 
 -   Interactive (double click) mode
 
-However, if you find a problem with the script or have ideas on how it
-could be improved I would love to hear from you so please drop me a line
-at tim.wiser@gcicom.net and I’ll be happy to help you out.
-Alternatively, pop a post on the NRC discussion forum.
+If you find a problem with the script or have ideas on how it could be improved post an issue on GitHub [](https://github.com/N-able/InstallAgent/issues). Alternatively, post on the NRC discussion forum.
 
 If you use this in your environment I’d love to hear from you!
 
-***Disclaimer: This script is provided in good faith and must be tested
-in your own environment before wide-scale deployment***
+***Disclaimer: This script is provided in good faith and must be tested in your own environment before wide-scale deployment***
 
-Configure the script for your own use
-=====================================
+# Configure files for your own use
+### InstallAgent.ini
 
-The script as provided from myself is set up to work with the v9.5.1.451
-agent. It will not function with agents that use .NET 2 and if you are
-using a .NET 4 agent that is not v9.5.1.451 you will need to amend the
-script to recognise that version.
+All the normal partner-customized parameters are in the file *AgentInstall.ini.*
 
-1.  Open INSTALLAGENT.VBS using a text editor (I recommend Notepad++ as
-    that’s what it was written using, and other editors may not handle
-    the tabulation in the same way)
+Value | Default | Purpose
+----- | ------- | -------
+*ServerAddress* | | This address is pinged at the start of the script to see whether or not the device has Internet access.
+*Branding* | Solarwinds N-central MSP  | Change this to ‘brand’ the script. For example, you might change it to be the name of your company.
+*ContactAdminMsg* | Please contact your IT administrator, support company or managed service provider to report this problem. | A message that appears when a critical error appears. You may want to change this into your local language.
+*AgentFolder* | Agent | The name of the folder where you store the GPO files.
+*SOAgentVersion* |  | Update this to match the version of the agent you're deploying.  The format of this entry matches the format of the agent version displayed in N-Central
+*SOAgentFileVersion* | | The Windows file version of the agent installer executable.  This entry matches the **File version** field on the Details tab of the executable file properties.
 
-2.  Amend the line starting *CONST strServerAddress* to contain the FQDN
-    of your N-central server
-
-3.  Amend the line starting *CONST strBranding* to be the name of your
-    company
-
-Additional configuration can be carried out in the same section:
+### InstallAgent.vbs
+Additional advanced configuration can be carried out in the script:
 
 Value | Default | Purpose
 ----- | ------- | -------
 *strPingAddress* | 8.8.8.8 | This address is pinged at the start of the script to see whether or not the device has Internet access.
 *strSOAgentEXE* | SOAgentSetup.exe | This is the name of the SO-level agent installer file.
-*strContactAdmin* | Please contact your IT administrator, support company or managed service provider to report this problem. | A message that appears when a critical error appears. You may want to change this into your local language.
-*strAgentFolder* | Agent | The name of the folder where you store the GPO files. *NOTE: If you modify this you will also need to modify the path in the LaunchInstaller.bat file manually*
-*strBranding* | N-able Agent | Change this to ‘brand’ the script. For example, you might change it to be the name of your company.
 *intPingTolerance* | 20 | Percentage value of dropped packets before the Connectivity test is deemed to fail
 *intPingTestCount* | 10 | The number of pings performed by the Connectivity test.
 
-Configure N-central for automatic device import
-===============================================
+# Configure N-central for automatic device import
 
-As default, if a device gets the agent installed it will still need to
-be manually imported into the All Devices view of N-central. This can be
-automated so that devices appear in the view without any manual
-intervention.
+As default, if a device gets the agent installed it will still need to be manually imported into the All Devices view of N-central. This can be automated so that devices appear in the view without any manual intervention.
 
 To do this, perform the following change in N-central:
 
@@ -78,19 +58,15 @@ To do this, perform the following change in N-central:
 
 2.  Click *Administration -&gt; Discovery Defaults*
 
-3.  Ensure that *Workstations – Windows, Laptops – Windows* and *Servers
-    – Windows* are all in the Auto-Import section (see below)
+3.  Ensure that *Workstations – Windows, Laptops – Windows* and *Servers – Windows* are all in the Auto-Import section (see below)
 
 4.  Click *Save*
 
 ![](media/readme-image1.png)
 
-Set up the script files on your network
-=======================================
+# Set up the script files on your network
 
-These steps assume that you are using the defaults given in the table
-above. If you have amended any of the CONST values, remember to use your
-own values in these steps.
+These steps assume that you are using the defaults given in the table above. If you have amended any of the configuration file values, remember to use your own values in these steps.
 
 1. On a domain controller, open the NETLOGON folder and create a folder called AGENT
 
@@ -122,86 +98,49 @@ You should now have a folder called AGENT that contains:
 
 -   AGENTCLEANUP4.EXE
 
-Create the Group Policy Object on your network
-==============================================
+# Create the Group Policy Object on your network
 
 1.  Create a new GPO and link to a suitable OU or to the domain itself
 
-2.  Expand the COMPUTER CONFIGURATION section and navigate through to
-    SCRIPTS
+2.  Expand the COMPUTER CONFIGURATION section and navigate through to SCRIPTS
 
-3.  Create a new STARTUP script. The command to run is
-    *\\\\DOMAIN\\NETLOGON\\AGENT\\LAUNCHINSTALLER.BAT* and the
-    parameters field should *be XXX DOMAINNAME STARTUP*, where XXX is
-    the numerical customer ID code in N-central and DOMAINNAME is the
-    Active Directory domain name. For example, 405 BAYTREE STARTUP
+3.  Create a new STARTUP script. The command to run is *\\\\DOMAIN\\NETLOGON\\AGENT\\LAUNCHINSTALLER.BAT* and the parameters field should *be XXX DOMAINNAME*, where XXX is the numerical customer ID code in N-central and DOMAINNAME is the Active Directory domain name. For example, 405 BAYTREE
 
 ![](media/readme-image2.png)
 
 Congratulations! Your installation is now complete.
 
-Testing and troubleshooting
-===========================
+# Testing and troubleshooting
 
-To test the script you can either run it in an admin command prompt or
-double click on it from the AGENT folder. If you double click it, it
-will run in a special interactive mode. If you run it in a command
-prompt it runs in a hands-free mode.
+To test the script you can either run it in an admin command prompt or double click on it from the AGENT folder. If you double click it, it will run in a special interactive mode. If you run it in a command prompt it runs in a hands-free mode.
 
 *CSCRIPT*
-[*\\\\DOMAIN\\NETLOGON\\INSTALLAGENT.VBS*](file:///\\DOMAIN\NETLOGON\INSTALLAGENT.VBS)
+[*\\\\DOMAIN\\NETLOGON\\AGENT\\INSTALLAGENT.VBS*]
 */site:XXX /mode:STARTUP*
 
--   On a device that doesn’t have the agent or .NET 4 installed, the
-    script will install .NET and then install the agent. If the Windows
-    Imaging Components software (a pre-req for .NET 4) is not installed,
-    this is installed for you.
+-   On a device that doesn’t have the agent or .NET 4 installed, the script will install .NET and then install the agent. If the Windows Imaging Components software (a pre-req for .NET 4) is not installed, this is installed for you.
 
--   On a device that has .NET 4 installed but no agent, the script will
-    install the agent.
+-   On a device that has .NET 4 installed but no agent, the script will install the agent.
 
--   On a device that has a version of the agent older than v8, it will
-    uninstall the old agent and install the new one.
+-   On a device that has an outdated version of the agent, it will uninstall the old agent and install the new one.
 
--   On a device that has a broken or unresponsive agent, it will
-    forcibly reinstall the agent. This can take about five minutes
-    to complete.
+-   On a device that has a broken or unresponsive agent, it will forcibly reinstall the agent. This can take about five minutes to complete.
 
--   On a device that has been deleted from N-central, the agent will be
-    reinstalled and begin checking into N-central shortly after the
-    reinstall has completed
+-   On a device that has been deleted from N-central, the agent will be reinstalled and begin checking into N-central shortly after the reinstall has completed
 
-The script logs its progress into the Application event log under source
-*WSH* (Windows Scripting Host). It’s very verbose and the log is a great
-place to look when you’re trying to find out why a device hasn’t
-installed the agent.
+The script logs its progress into the Application event log under source *WSH* (Windows Scripting Host). It’s very verbose and the log is a great place to look when you’re trying to find out why a device hasn’t installed the agent.
 
-Excluding devices
-=================
+# Excluding devices
 
-It’s not always desirable to install the agent on every single device.
-For example, you may have a customer that has EPOS tills that although
-are joined to the domain, they do not require management. There’s a
-couple of ways you can do this. Best Microsoft practice would be to
-create a domain group containing the computer objects for the devices
-and setting a Deny on the ACL for the Group Policy Object that runs the
-script. Another way is to double click on INSTALLAGENT.VBS and respond
-YES to the first question. Once you’ve done that, the script will still
-run on the device but it will exit immediately, doing nothing.
+It’s not always desirable to install the agent on every single device. For example, you may have a customer that has EPOS tills that although are joined to the domain, they do not require management. There’s a couple of ways you can do this. Best Microsoft practice would be to create a domain group containing the computer objects for the devices and setting a Deny on the ACL for the Group Policy Object that runs the script. Another way is to double click on INSTALLAGENT.VBS and respond YES to the first question. Once you’ve done that, the script will still run on the device but it will exit immediately, doing nothing.
 
-Exit codes
-==========
+# Exit codes
 
-On a normal execution, the script exits with a code of 10. This is to
-remove any ambiguity that might arise from an accidental code of 0 being
-returned for any reason. The following codes can also be returned. These
-exit codes are written into the Application event log when the script
-finishes running and can also be found in the custom service.
+On a normal execution, the script exits with a code of 10. This is to remove any ambiguity that might arise from an accidental code of 0 being returned for any reason. The following codes can also be returned. These exit codes are written into the Application event log when the script finishes running and can also be found in the custom service.
 
 > 0 Internal error
 >
-> 1 NET4 not installed / Windows 2000 detected / Windows XP not at SP3
-> level
+> 1 NET4 not installed / Windows 2000 detected / Windows XP not at SP3 level
 >
 > 2 No external network access detected
 >
@@ -221,40 +160,24 @@ finishes running and can also be found in the custom service.
 >
 > 10 Normal execution
 
-Routine maintenance
-===================
+# Routine maintenance
 
-When you upgrade your N-central you will need to update the script and
-installer file to recognise the new version of the agent.
+When you upgrade your N-central you will need to update the script and installer file to recognise the new version of the agent.
 
-1.  Locate the line beginning *CONST strRequiredAgent* and set it to be
-    the version of the agent that you wish to use
+1. Update the SOAGENTSETUP.EXE file inside the AGENT folder  
 
-2.  Update the SOAGENTSETUP.EXE file inside the AGENT folder
+2. Locate the line beginning *SOAgentVersion* and set it to be the version of the agent that you wish to use  
 
-3.  Right-click over the SOAGENTSETUP.EXE file and select *Details*.
-    Make a note of the *File Version* and set the line beginning with
-    *CONST strAgentFileVersion* to match it
+3.  Right-click over the SOAGENTSETUP.EXE file and select *Properties*.  Go to the *Details* tab. Make a note of the *File Version* and set the line beginning with *SOAgentFileVersion* to match it.
 
-Tip! There are a number of partners on the NRC discussion forum who have
-implemented Automation Policies or scripts that are designed to ease
-this task, so I strongly recommend that you grab the most suitable one
-for your needs.
+Tip! There are a number of partners on the NRC discussion forum who have implemented Automation Policies or scripts that are designed to ease this task, so I strongly recommend that you grab the most suitable one for your needs.
 
-Custom service
-==============
+# Custom service
 
-When the script executes, it writes its progress into the Registry. This
-information can be gathered and reported on within N-central itself so
-you can see how your devices are behaving with the script. The custom
-service, called *Agent Installer Script Status*, can only be used on 9.5
-SP1 onwards.
+When the script executes, it writes its progress into the Registry. This information can be gathered and reported on within N-central itself so you can see how your devices are behaving with the script. The custom service, called *Agent Installer Script Status*, can only be used on 9.5 SP1 onwards.
 
 ![](media/readme-image3.png)
 
-Credits
-=======
+# Credits
 
-Thanks go to Pat Albert of N-able for development of the
-AGENTCLEANUP4.EXE utility and to everyone on the N-able forums who has
-helped and contributed ideas to this script.
+Thanks go to Pat Albert of N-able for development of the AGENTCLEANUP4.EXE utility and to everyone on the N-able forums who has helped and contributed ideas to this script.

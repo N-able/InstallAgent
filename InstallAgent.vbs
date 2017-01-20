@@ -67,6 +67,10 @@
 '				Aligned XP < SP3 exit code with documentation (was 3, should be 1)
 '				Added localhost zombie checking
 '				Changed registry location to HKLM:Software\N-Central
+' 4.20 20170119		-	Moved partner-configured parameters out to AgentInstall.ini
+'				Removed Windows 2000 checks
+'				Cleaned up agent checks to eliminate redundant calls to StripAgent
+'				Remove STARTUP|SHUTDOWN mode
 '
 
 '
@@ -85,12 +89,15 @@
 
 Option Explicit
 
+' Script Version
+CONST strVersion = "4.20"		' The current version of this script
+
 ' Declare and define our variables and objects
 Dim objFSO, output, objReg, objArguments, objArgs, objNetwork, objWMI, objShell, objEnv, objAppsList
 Dim objCleanup, objServices, objInstallerProcess, objAgentInstaller, strAgentInstallerShortName, objMarkerFile
 Dim objQuery, objDotNetInstaller, objFile, objExecObject, objWIC, colService, objCmd
 Dim strComputer, strAgentPath, strAgentBin, strCheckForFilme, strMSIflags, strNETversion, strInstallFlags
-Dim strSiteID, strMode, strDomain, strInstallSource, strMessage, strWindowsFolder, strInstallCommand, strLine
+Dim strSiteID, strDomain, strInstallSource, strMessage, strWindowsFolder, strInstallCommand, strLine
 Dim strAgentConfig, strApplianceConfig, arrApplianceConfig, strServerConfig
 Dim strKey, strType, strValue, strExitComment
 Dim strOperatingSystem, strAltInstallSource, strTemp, strProxyString
@@ -111,8 +118,6 @@ CONST strDummyDom = "UNKNOWN.TIM"
 CONST strRegBase = "N-Central"	' Change this to "Tim Wiser" to use the traditional registry location for monitoring
 								' Replace "InstallAgentStatus.amp" with "InstallAgentStatus - Tim Wiser.amp"
 
-CONST strVersion = "4.10"		' The current version of this script
-
 ' Exit code definitions
 CONST errInternal = 0			' Internal error
 CONST errPrereq = 1 			' .NET4 not installed / Windows 2000 detected / Windows XP not at SP3
@@ -127,32 +132,36 @@ strComputer = "."
 strAgentPath = ""
 strDomain = strDummyDom			' This is a dummy domain name, do NOT change
 strSiteID = ""
-strMode = ""
 strSpin = "|"
 bolInteractiveMode = False
 runState = errNormal			' Tracks the error condition in the script and determines if we should continue
 
 ' ***********************************************************************************************************************************************************
 ' Define some constants for your environment
-CONST strServerAddress = "fqdn.n-central.svr"		' The FQDN or IP address of your N-central server
-CONST strBranding = "ACME MSP Monitoring"			' Branding label, eg. 'ACME MSP monitoring'.  Used in popup messages as the window title
-CONST strAgentFolder = "Agent"						' This is the name of the folder within NETLOGON where you have placed the agent installer
-
-' Update these when a new agent is released
-CONST strRequiredAgent = "10.1.0.318"				' This should be the N-central version of the agent that has been deployed out to customers
-CONST strAgentFileVersion = "10.1.1318.0"			' This is the 'File Version' of the agent installer file itself, obtained from the Details tab in Explorer
-
-CONST bolNoWin2K = True						' Set this to False if you want to attempt installs on Windows 2000, which is only supported on pre-9.2 agents
 CONST bolWarningsOn = False					' If the agent fails, the user gets a popup message.  Change this to False if you don't want them to be informed
 
 CONST strPingAddress = "8.8.8.8"				' Address to ping to check connectivity.  Usually this will be your N-central server's FQDN
 CONST strSOAgentEXE = "SOAgentSetup.exe"			' The name of the SO-level agent installer file that is stored within NETLOGON\strAgentFolder
-CONST strContactAdmin = "Please contact your MSP for assistance."		' Your contact info
 
 CONST intPingTolerance = 20							' % value.  If you have networks that drop packets under normal conditions, raise this value
 CONST intPingTestCount = 10							' Increase this to make the script perform more pings during the Connectivity test
 ' ***********************************************************************************************************************************************************
 
+
+' ***********************************************************************************************************************************************************
+' Define INI File Keys
+CONST strINIFile = "AgentInstall.ini"
+CONST strSection = "General"
+CONST strDefaultValue = "-"
+CONST strZeroBytes = "0"
+CONST strNull = ""
+CONST strKeyContactAdmin = "ContactAdminMsg"
+CONST strKeyServerAddress = "ServerAddress"
+CONST strKeyBranding = "Branding"
+CONST strKeyAgentVersion = "SOAgentVersion"
+CONST strKeyAgentFileVersion = "SOAgentFileVersion"
+CONST strKeyAgentFolder = "AgentFolder"
+' ***********************************************************************************************************************************************************
 
 
 ' Create objects that we're going to be using
@@ -168,13 +177,32 @@ Set objArgs = objArguments.Named
 
 strWindowsFolder = objShell.ExpandEnvironmentStrings("%WINDIR%")
 
+
+' Get contents of the INI file As a string
+DIM strScriptPath : strScriptPath = Left(WScript.ScriptFullName,InStrRev(WScript.ScriptFullName,"\"))
+DIM INIContents : INIContents = GetFile(strScriptPath & strINIFile)
+
+' ***********************************************************************************************************************************************************
+' Load program values from INI file
+DIM strServerAddress: strServerAddress = GetINIString(INIContents, strSection, strKeyServerAddress, strDefaultValue)
+DIM strBranding: strBranding = GetINIString(INIContents, strSection, strKeyBranding, strDefaultValue)
+DIM strContactAdmin: strContactAdmin = GetINIString(INIContents, strSection, strKeyContactAdmin, strDefaultValue)
+DIM strAgentFolder : strAgentFolder = GetINIString(INIContents, strSection, strKeyAgentFolder, strDefaultValue)
+DIM strRequiredAgent: strRequiredAgent = GetINIString(INIContents, strSection, strKeyAgentVersion, strDefaultValue)
+DIM strAgentFileVersion: strAgentFileVersion = GetINIString(INIContents, strSection, strKeyAgentFileVersion, strDefaultValue)
+' ***********************************************************************************************************************************************************
+
 ' Get the mandatory parameters
 strSiteID = objArgs("site")
-strMode = objArgs("mode")
-strNoNetwork = objArgs("nonetwork")
+strNoNetwork = UCase(objArgs("nonetwork"))
 strAltInstallSource	= objArgs("source")
-strMode = UCase(strMode)
-strNoNetwork = UCase(strNoNetwork)
+
+' WScript.StdOut.Write "Server Address: " & strServerAddress & vbCRLF & _
+'	"Branding: " & strBranding & vbCRLF & _
+'	"Contact Admin: " & strContactAdmin & vbCRLF & _
+'	"Agent Folder: " & strAgentFolder & vbCRLF & _
+'	"Required Version: " & strRequiredAgent & vbCRLF & _
+'	"File Version: " & strAgentFileVersion & vbCrlf
 
 ' Make sure that the Registry key that we write to actually exists
 objReg.CreateKey HKEY_LOCAL_MACHINE, "SOFTWARE\" & strRegBase & "\InstallAgent"
@@ -195,10 +223,12 @@ Else
 	objShell.LogEvent evtSuccess, "The agent installer script is running in non-interactive (scripted) mode."
 	objReg.SetStringValue HKEY_LOCAL_MACHINE, "SOFTWARE\" & strRegBase & "\InstallAgent\", "LastMode", "Unattended"
 	' Support the /? parameter on the command line to get a little bit of help
-	If objArguments(0) = "/?" Then
-		WScript.Stdout.Write "InstallAgent.vbs version " & strVersion & vbCRLF & "by Tim Wiser, GCI Managed IT (tim.wiser@gcicom.net)" & vbCRLF & vbCRLF
-		WScript.Stdout.Write "Syntax: InstallAgent.vbs /site:[ID] /mode:[STARTUP|SHUTDOWN] (/source:[ALTERNATIVE SOURCE PATH]) (/nonetwork:yes)" & vbCRLF & vbCRLF
-		CleanQuit
+	If objArguments.Count > 0 Then
+		If objArguments(0) = "/?" Then
+			WScript.Stdout.Write "InstallAgent.vbs version " & strVersion & vbCRLF & "by Tim Wiser, GCI Managed IT (tim.wiser@gcicom.net)" & vbCRLF & vbCRLF
+			WScript.Stdout.Write "Syntax: InstallAgent.vbs /site:[ID] /mode:[STARTUP|SHUTDOWN] (/source:[ALTERNATIVE SOURCE PATH]) (/nonetwork:yes)" & vbCRLF & vbCRLF
+			CleanQuit
+		End If
 	End IF
 End If
 
@@ -209,10 +239,10 @@ objReg.SetStringValue HKEY_LOCAL_MACHINE, "SOFTWARE\" & strRegBase & "\InstallAg
 objReg.SetStringValue HKEY_LOCAL_MACHINE, "SOFTWARE\" & strRegBase & "\InstallAgent\", "LastExitComment", "Script started successfully"
 WRITETOCONSOLE("Please wait whilst the " & strBranding & " agent is checked." & vbCRLF & vbCRLF)
 
-' Validate the mandatory parameters if we're running in non-interactive mode
+' Validate the mandatory parameter if we're running in non-interactive mode
 If bolInteractiveMode = False Then	
-	If (strSiteID = "" Or strMode = "") Then
-		strMessage = "The agent installer script was passed an insufficient number of parameters.  Both /site:[ID] and /mode:[STARTUP|SHUTDOWN] are required for this script to function. The agent installation cannot continue on this device.  Please check the GPO configuration."
+	If strSiteID = "" Then
+		strMessage = "The agent installer script was passed an insufficient number of parameters.  /site:[ID] is required for this script to function. The agent installation cannot continue on this device.  Please check the GPO configuration."
 		objShell.LogEvent evtError, strMessage
 		runState = errInternal 
 	End If
@@ -341,14 +371,6 @@ Sub ConfigureSource
 				strAltInstallSource = strAltInstallSource & "\"
 			End If
 			strInstallSource = strAltInstallSource
-'
-'			This code block duplicates the check that immediately succeeds it.  Is there value in identifying this is the "alternative" path?
-'
-'			If objFSO.FileExists(strAltInstallSource & strSOAgentEXE) = False Then
-'				objShell.LogEvent evtError, "The agent installer script could not validate the alternative path to the agent installer that was specified, which was " & strInstallSource
-'			Else
-'				objShell.LogEvent evtSuccess, "The agent installer script will use the agent installer file " & strInstallSource & strSOAgentEXE
-'			End If
 		End If
 
 		' Write the strInstallSource path into the Registry for the custom service to read
@@ -521,19 +543,6 @@ End Sub 'GetOSInfo
 Sub VerifyOSPrereq
 	WRITETOCONSOLE(strOperatingSystem & " detected" & vbCRLF)
 		
-	' Complain if Windows 2000 is detected and bolNoWin2K is set to True (default)
-	If bolNoWin2K = True Then
-		If Instr(strOperatingSystem, "2000")>0 Then
-			strMessage = "The agent cannot be installed on Windows 2000."
-			objShell.LogEvent evtError, "The agent installer script has detected that this device is running Windows 2000.  The agent cannot be installed onto this operating system due to the pre-requisites of Microsoft .NET Framework 4.  Exiting now."
-			WRITETOCONSOLE(strMessage & vbCRLF)
-			If bolInteractiveMode = True Then
-				MsgBox strMessage, vbOKOnly + vbCritical, strBranding
-			End If
-			runState = errPrereq
-		End If
-	End If
-
 	' Warn if the device is running Windows XP and isn't patched to SP3 level
 	If Instr(strOperatingSystem, "XP")>0 Then
 		If intServicePackLevel < 3 Then
@@ -568,17 +577,8 @@ Sub ProcessAgent
 				MsgBox "Agent installation has been aborted.", vbExclamation, strBranding
 				CleanQuit
 			End If
-			strMode = "STARTUP"
 		End If
 
-		' We can't install the agent on shutdown due to Windows killing off the script before the installer has completed, so we create
-		' a registry key which will perform the installation the next time it starts up, whether it's on the domain or not.
-		If strMode = "SHUTDOWN" Then
-			WRITETOCONSOLE("Shutting down")
-			objShell.LogEvent evtWarning, "The agent installer script is not able to deploy the agent whilst Windows is shutting down."
-			CleanQuit
-		End If
-		
 		' Check for .NET Framework v4
 		If DOTNETPRESENT(strDotNetRegKey) = "NOT_INSTALLED" Then
 		
@@ -684,7 +684,7 @@ Sub ProcessAgent
 
 			
 		' Branch off for an install.  We no longer do a verify of the agent afterwards -  we assume that the agent is installed and do checks during the Function
-		INSTALLAGENT strSiteID, strDomain, strMode
+		INSTALLAGENT strSiteID, strDomain
 		
 	Else	' Agent is installed, do a verify
 		strMessage = "The agent installer script has determined that the agent is already installed on this device.  The binary was found at " & strAgentBin
@@ -712,7 +712,7 @@ Sub ProcessAgent
 		Set objServices = objWMI.ExecQuery("SELECT Name FROM Win32_Service WHERE Name LIKE 'Windows Agent%'")
 		If objServices.Count = 0 Then
 			' The agent services are no longer present
-			INSTALLAGENT strSiteID, strDomain, strMode
+			INSTALLAGENT strSiteID, strDomain
 		End If
 			
 
@@ -723,8 +723,8 @@ End Sub ' ProcessAgent
 ' ***************************************************************
 ' Function - InstallAgent - Performs an installation of the agent
 ' ***************************************************************
-Function INSTALLAGENT(strSiteID, strDomain, strMode)
-	strMessage = "Install agent for N-central site ID " & strSiteID & " on this device which is in domain " & strDomain & " from " & strInstallSource & " in " & strMode & " mode"
+Function INSTALLAGENT(strSiteID, strDomain)
+	strMessage = "Install agent for N-central site ID " & strSiteID & " on this device which is in domain " & strDomain & " from " & strInstallSource
 	' If we're in interactive mode, pop up a question to confirm that we want to start the installation
 	If bolInteractiveMode = True Then
 		response = MsgBox(strMessage & "?", vbQuestion + vbYesNo, strBranding)
@@ -733,10 +733,7 @@ Function INSTALLAGENT(strSiteID, strDomain, strMode)
 			CleanQuit
 		End If
 	End If
-			
-	' Run a cleanup in preparation for the agent to be installed and wait for it to finish
-	VERIFYAGENT
-	
+
 	' If we're running in interactive mode then make the agent installation less hands-off
 	strMSIflags = " /S /v" & Chr(34) & " /qn "
 	If bolInteractiveMode = True Then
@@ -855,10 +852,10 @@ Function STRIPAGENT
 		
 		Do While objCleanup.Status = 0
 			'WRITETOCONSOLE(".")
-			WRITETOCONSOLE("Preparing agent .................. " & SPIN & vbCR)
+			WRITETOCONSOLE("Removing agent ................... " & SPIN & vbCR)
 			WScript.Sleep 100	' interval delay in milliseconds
 		Loop
-		WRITETOCONSOLE("Preparing agent .................. done!" & vbCRLF)
+		WRITETOCONSOLE("Removing agent ................... done!" & vbCRLF)
 	End If
 End Function
 
@@ -867,6 +864,147 @@ End Function
 ' Sub function - VerifyAgent - Runs the agentcleanup command to verify the health of the agent
 ' ********************************************************************************************
 Sub VERIFYAGENT
+
+	' Check to see that we have .NET 4 installed, as we can only run a verify if it is
+	If DOTNETPRESENT(strDotNetRegKey)="NOT_INSTALLED" Then
+		objShell.LogEvent evtError, "The agent installer script cannot perform a verify of the agent as Microsoft .NET Framework 4 is not installed on this device.  It has probably been uninstalled.  The script will now terminate."
+		DIRTYQUIT errPrereq
+	End If
+
+	' Verify both Agent and Agent Maintenance services are present and running
+	If VerifyServices Then
+	
+		' Check the value of appliance id in the config\ApplianceConfig.xml file
+		If VerifyApplianceID Then
+
+			' Check the value of the ServerIP field in config\ServerConfig.xml
+			If VerifyServerConfig Then
+			
+				' Check to see if the agent is installed onto a non-C drive.  If it is, don't proceed as AgentCleanup4 doesn't support this and will
+				' cause repeated uninstalls and installs of the agent
+				If strAgentBin <> "" And Mid(strAgentBin, 2,1) <> "C" Then
+					WRITETOCONSOLE("Checking health .................. skipped" & vbCRLF)
+					objShell.LogEvent evtWarning, "The agent installer cannot perform a verify of the agent on this device as the agent is not installed onto the C drive. The script will now terminate."
+					DIRTYQUIT errInternal
+				End If
+				
+				' The agent is installed onto the C drive so we can do a proper verify
+				objShell.LogEvent evtSuccess, "The agent installer script started a verify of the agent."
+				' Launch the cleanup utility
+				
+				Set objCleanup = objShell.Exec("cmd /c AgentCleanup4.exe " & strRequiredAgent & " writetoeventlog")
+					
+				' Wait for the cleanup to finish
+				count = 0
+				Do While objCleanup.Status = 0
+					count = count +1
+				
+					If count < 900 Then
+						WRITETOCONSOLE("Checking health .................. " & SPIN & vbCR)
+					End If
+					
+					If count > 900 Then
+						WRITETOCONSOLE("Repairing ........................ " & SPIN & "         " & vbCR)
+					End If
+					
+					' If the repair takes over 90 seconds then a fullscale remove is probably being done
+					If count = 900 Then
+						WRITETOCONSOLE("Checking health .................. failed!" & vbCRLF)
+						' agentcleanup4 is doing a repair
+						objShell.LogEvent evtWarning, "The agent installer script has detected that the verify stage is probably performing a full cleanup of the agent. The agent is probably not communicating back to N-central or is outdated and is therefore being removed in preparation for a reinstallation."
+					End If
+				
+					' The repair is taking too long, so bug out of this loop
+					If count > 4200 Then
+						objShell.LogEvent evtError, "The agent installer script tried to repair the agent but the process exceed the permitted timeframe of six minutes."
+						Exit Do
+					End If
+				
+					WScript.Sleep 100
+				Loop
+				
+				' Report on the various states that we could be in now the loop is exited
+				If count < 90 Then
+					WRITETOCONSOLE("Checking health .................. done!         " & vbCRLF)
+				End If
+				
+				If count > 90 and count < 420 Then
+					WRITETOCONSOLE("Repairing ........................ done!               " & vbCRLF)
+				End If
+				
+				If count > 420 Then
+					WRITETOCONSOLE("Repairing ........................ failed!             " & vbCRLF)
+				End If
+				
+				' Did anything happen during the cleanup?
+				If objCleanup.ExitCode <> 0 Then
+					objShell.LogEvent evtWarning, "The agent installer verify process found a problem with the agent and may have removed it."
+				Else
+					objShell.LogEvent evtSuccess, "The agent installer script has finished a cleanup/verify"
+				End If
+			End If ' VerifyServerConfig
+		End If ' VerifyApplianceID
+	End If ' VerifyServices
+End Sub
+
+
+' *************************************************************************************
+' Sub Function - CopyAgentCleanup - Copies the AgentCleanup4.exe from network to device
+' *************************************************************************************
+Sub CopyAgentCleanup
+	Dim bolCopy
+
+	WRITETOCONSOLE("Copying cleanup utility .......... ")
+	
+	' First we make sure that it's actually available to copy
+	If objFSO.FileExists(strInstallSource & "AgentCleanup4.exe")=False Then
+		WRITETOCONSOLE("failed!" & vbCRLF)
+		objShell.LogEvent evtError, "The agent installer script could not find the AgentCleanup4.exe utility at " & strInstallSource & "AgentCleanup4.exe and cannot proceed."
+		runState = errSource
+	Else
+		' If the local copy does not exist or is not the same version as on the network, copy the network locally
+		If objFSO.FileExists(strWindowsFolder & "\AgentCleanup4.exe") = False Then
+			' No local copy exists.  Flag to copy
+			bolCopy = True
+		ElseIf objFSO.GetFileVersion(strWindowsFolder & "\AgentCleanup4.exe") <> objFSO.GetFileVersion(strInstallSource & "\AgentCleanup4.exe") Then
+			' Local copy is the wrong version.  Delete and flag to copy
+			objFSO.DeleteFile(strWindowsFolder & "\AgentCleanup4.exe")
+			bolCopy = True
+		Else
+			' Local copy exists and matches network version.  No need to copy
+			bolCopy = False
+			WRITETOCONSOLE("done!" & vbCRLF)
+		End If
+		
+		If bolCopy = True Then
+			objFSO.CopyFile strInstallSource & "Agentcleanup4.exe", strWindowsFolder & "\AgentCleanup4.exe"
+			
+			If objFSO.FileExists(strWindowsFolder & "\agentcleanup4.exe") = False Then
+				WRITETOCONSOLE(" failed!" & vbCRLF)
+				strMessage = "The agent installer script could not not copy AgentCleanup4.exe from " & strInstallSource & " into " & strWindowsFolder
+				If bolInteractiveMode = True Then
+					msgbox strMessage & vbCRLF & vbCRLF & strContactAdmin, 16, strBranding
+				End If
+				objShell.LogEvent evtError, strMessage
+				runState = errSource
+			Else
+				WRITETOCONSOLE("done!" & vbCRLF)
+			End If
+		End If
+
+	End If
+End Sub ' CopyAgentCleanup
+
+
+' *****************************************************************************
+' Function - VerifyServices - Checks the state of Agent and Agent Maintenance
+'	services.
+'
+' Side Effects - none
+' 
+' *****************************************************************************
+Function VerifyServices
+	Dim bValid : bValid = True
 
 	' Firstly, check to see that we've got two services present
 	Set objServices = objWMI.ExecQuery("SELECT State,Name FROM Win32_Service WHERE Name LIKE 'Windows Agent%'")
@@ -935,155 +1073,27 @@ Sub VERIFYAGENT
 			End If
 			
 			' Remove the agent
+			bValid = False
 			STRIPAGENT
 		End If
-	
 	Else
-	
 		' Only one service is listed in WMI (services.msc) so the agent is totally broken, so let's remove it
+		bValid = False
 		STRIPAGENT
-	End If
-
-
+	End If	
 	
-	' Check to see that we have .NET 4 installed, as we can only run a verify if it is
-	If DOTNETPRESENT(strDotNetRegKey)="NOT_INSTALLED" Then
-		objShell.LogEvent evtError, "The agent installer script cannot perform a verify of the agent as Microsoft .NET Framework 4 is not installed on this device.  It has probably been uninstalled.  The script will now terminate."
-		DIRTYQUIT errPrereq
-	End If
+	VerifyServices = bValid
+End Function ' VerifyServices	
 	
-
-
-	' Check the value of appliance id in the config\ApplianceConfig.xml file
-	VerifyApplianceID
-	
-	
-	' Check the value of the ServerIP field in config\ServerConfig.xml
-	VerifyServerConfig
-	
-	
-	' Check to see if the agent is installed onto a non-C drive.  If it is, don't proceed as AgentCleanup4 doesn't support this and will
-	' cause repeated uninstalls and installs of the agent
-	If strAgentBin <> "" And Mid(strAgentBin, 2,1) <> "C" Then
-		WRITETOCONSOLE("Checking health .................. skipped" & vbCRLF)
-		objShell.LogEvent evtWarning, "The agent installer cannot perform a verify of the agent on this device as the agent is not installed onto the C drive. The script will now terminate."
-		DIRTYQUIT errInternal
-	End If
-	
-	' The agent is installed onto the C drive so we can do a proper verify
-	objShell.LogEvent evtSuccess, "The agent installer script started a verify of the agent."
-	' Launch the cleanup utility
-	
-	Set objCleanup = objShell.Exec("cmd /c AgentCleanup4.exe " & strRequiredAgent & " writetoeventlog")
-		
-	' Wait for the cleanup to finish
-	count = 0
-	Do While objCleanup.Status = 0
-		count = count +1
-	
-		If count < 900 Then
-			WRITETOCONSOLE("Checking health .................. " & SPIN & vbCR)
-		End If
-		
-		If count > 900 Then
-			WRITETOCONSOLE("Repairing ........................ " & SPIN & "         " & vbCR)
-		End If
-		
-		' If the repair takes over 90 seconds then a fullscale remove is probably being done
-		If count = 900 Then
-			WRITETOCONSOLE("Checking health .................. failed!" & vbCRLF)
-			' agentcleanup4 is doing a repair
-			objShell.LogEvent evtWarning, "The agent installer script has detected that the verify stage is probably performing a full cleanup of the agent. The agent is probably not communicating back to N-central or is outdated and is therefore being removed in preparation for a reinstallation."
-		End If
-	
-		' The repair is taking too long, so bug out of this loop
-		If count > 4200 Then
-			objShell.LogEvent evtError, "The agent installer script tried to repair the agent but the process exceed the permitted timeframe of six minutes."
-			Exit Do
-		End If
-	
-		WScript.Sleep 100
-	Loop
-	
-	' Report on the various states that we could be in now the loop is exited
-	If count < 90 Then
-		WRITETOCONSOLE("Checking health .................. done!         " & vbCRLF)
-	End If
-	
-	If count > 90 and count < 420 Then
-		WRITETOCONSOLE("Repairing ........................ done!               " & vbCRLF)
-	End If
-	
-	If count > 420 Then
-		WRITETOCONSOLE("Repairing ........................ failed!             " & vbCRLF)
-	End If
-		
-		
-	' Did anything happen during the cleanup?
-	If objCleanup.ExitCode <> 0 Then
-		objShell.LogEvent evtWarning, "The agent installer verify process found a problem with the agent and may have removed it."
-	Else
-		objShell.LogEvent evtSuccess, "The agent installer script has finished a cleanup/verify"
-	End If
-	
-End Sub
-
-
-' *************************************************************************************
-' Sub Function - CopyAgentCleanup - Copies the AgentCleanup4.exe from network to device
-' *************************************************************************************
-Sub CopyAgentCleanup
-	Dim bolCopy
-
-	WRITETOCONSOLE("Copying cleanup utility .......... ")
-	
-	' First we make sure that it's actually available to copy
-	If objFSO.FileExists(strInstallSource & "AgentCleanup4.exe")=False Then
-		WRITETOCONSOLE("failed!" & vbCRLF)
-		objShell.LogEvent evtError, "The agent installer script could not find the AgentCleanup4.exe utility at " & strInstallSource & "AgentCleanup4.exe and cannot proceed."
-		runState = errSource
-	Else
-		' If the local copy does not exist or is not the same version as on the network, copy the network locally
-		If objFSO.FileExists(strWindowsFolder & "\AgentCleanup4.exe") = False Then
-			' No local copy exists.  Flag to copy
-			bolCopy = True
-		ElseIf objFSO.GetFileVersion(strWindowsFolder & "\AgentCleanup4.exe") <> objFSO.GetFileVersion(strInstallSource & "\AgentCleanup4.exe") Then
-			' Local copy is the wrong version.  Delete and flag to copy
-			objFSO.DeleteFile(strWindowsFolder & "\AgentCleanup4.exe")
-			bolCopy = True
-		Else
-			' Local copy exists and matches network version.  No need to copy
-			bolCopy = False
-			WRITETOCONSOLE("done!" & vbCRLF)
-		End If
-		
-		If bolCopy = True Then
-			objFSO.CopyFile strInstallSource & "Agentcleanup4.exe", strWindowsFolder & "\AgentCleanup4.exe"
-			
-			If objFSO.FileExists(strWindowsFolder & "\agentcleanup4.exe") = False Then
-				WRITETOCONSOLE(" failed!" & vbCRLF)
-				strMessage = "The agent installer script could not not copy AgentCleanup4.exe from " & strInstallSource & " into " & strWindowsFolder
-				If bolInteractiveMode = True Then
-					msgbox strMessage & vbCRLF & vbCRLF & strContactAdmin, 16, strBranding
-				End If
-				objShell.LogEvent evtError, strMessage
-				runState = errSource
-			Else
-				WRITETOCONSOLE("done!" & vbCRLF)
-			End If
-		End If
-
-	End If
-End Sub ' CopyAgentCleanup
-
 
 ' *****************************************************************************
-' Sub - VerifyApplianceID - Checks the appliance ID in ApplianceConfig.XML
+' Function - VerifyApplianceID - Checks the appliance ID in ApplianceConfig.XML
 '
 ' Side Effects - none
 ' 
 ' *****************************************************************************
-Sub VerifyApplianceID
+Function VerifyApplianceID
+	Dim bValid : bValid = True
 	Dim strApplianceConfig, strApplianceID
 	Dim xmlDoc, objNode
 	
@@ -1120,13 +1130,16 @@ Sub VerifyApplianceID
 	Else ' ApplianceConfig.XML does not exist
 		objShell.LogEvent evtError, "The agent installer script could not find the appliance config XML file at " & strApplianceConfig & ".  This indicates a likely corrupt installation."
 		WRITETOCONSOLE("failed!" & vbCRLF)
+		bValid = False
 		STRIPAGENT		' If there's not a ApplianceConfig.xml file, then strip the agent so it can be reinstalled
 	End If
-End Sub ' VerifyApplianceID
+
+	VerifyApplianceID = bValid
+End Function ' VerifyApplianceID
 
 
 ' *****************************************************************************
-' Sub - VerifyServerConfig - Checks the server in ServerConfig.xml
+' Function - VerifyServerConfig - Checks the server in ServerConfig.xml
 '	This handles the 'localhost' zombie
 '
 '	Normally, the agent service self-heals the ServerConfig.xml file.  On
@@ -1146,7 +1159,8 @@ End Sub ' VerifyApplianceID
 ' Side Effects - none
 ' 
 ' *****************************************************************************
-Sub VerifyServerConfig
+Function VerifyServerConfig
+	Dim bValid : bValid = True
 	CONST strLH = "localhost"
 
 	Dim strServerConfig, strConfigAddress
@@ -1267,6 +1281,7 @@ Sub VerifyServerConfig
 		ElseIf strConfigAddress = "" Then
 			objShell.LogEvent evtError, "The agent installer script could not find the ServerIP field in " & strServerConfig & ".  This indicates a likely corrupt installation."
 			WRITETOCONSOLE("failed!" & vbCRLF)
+			bValid = False
 			STRIPAGENT		' If there's not a ServerConfig.xml file, then strip the agent so it can be reinstalled	
 		Else
 			objShell.LogEvent evtSuccess, "The agent installer script found the ServerIP field in " & strServerConfig & " is " & strConfigAddress
@@ -1275,9 +1290,12 @@ Sub VerifyServerConfig
 	Else ' ServerConfig.XML does not exist
 		objShell.LogEvent evtError, "The agent installer script could not find the server config XML file at " & strServerConfig & ".  This indicates a likely corrupt installation."
 		WRITETOCONSOLE("failed!" & vbCRLF)
+		bValid = False
 		STRIPAGENT		' If there's not a ServerConfig.xml file, then strip the agent so it can be reinstalled
 	End If
-End Sub ' VerifyServerConfig
+	
+	VerifyServerConfig = bValid
+End Function ' VerifyServerConfig
 
 
 ' ***********************************************************************
@@ -1432,4 +1450,134 @@ Function DIRTYQUIT(intValue)
 	objShell.LogEvent evtError, "The agent installer script experienced a problem and exited prematurely.  The exit code was " & intValue & " (" & strExitComment & ")"
 	WScript.Quit intValue
 End Function
-' ############## Additional padding to make file size different
+
+
+' *****************************************************************************************
+' Work with INI files In VBS (ASP/WSH)
+' v1.00
+' 2003 Antonin Foller, PSTRUH Software, http://www.motobit.com
+' Modified by Jon Czerwinski, Cohn Consulting, 20130324
+' *****************************************************************************************
+' **************************************************************************
+' Sub - WriteINIString - Writes an INI value to file, creating section
+'       and value as necessary
+' **************************************************************************
+Sub WriteINIString(FileName, ByRef INIContents, Section, KeyName, Value)
+  Dim PosSection, PosEndSection
+  
+  ' Find section
+  PosSection = InStr(1, INIContents, "[" & Section & "]", vbTextCompare)
+  If PosSection>0 Then
+    ' Section exists. Find end of section
+    PosEndSection = InStr(PosSection, INIContents, vbCrLf & "[")
+    ' Is this last section?
+    If PosEndSection = 0 Then PosEndSection = Len(INIContents)+1
+    
+    ' Separate section contents
+    Dim OldsContents, NewsContents, Line
+    Dim sKeyName, Found
+    OldsContents = Mid(INIContents, PosSection, PosEndSection - PosSection)
+    OldsContents = split(OldsContents, vbCrLf)
+
+    ' Temp variable To find a Key
+    sKeyName = LCase(KeyName & "=")
+
+    ' Enumerate section lines
+    For Each Line In OldsContents
+      If LCase(Left(Line, Len(sKeyName))) = sKeyName Then
+        Line = KeyName & "=" & Value
+        Found = True
+      End If
+      NewsContents = NewsContents & Line & vbCrLf
+    Next
+
+    If isempty(Found) Then
+      ' key Not found - add it at the end of section
+      NewsContents = NewsContents & KeyName & "=" & Value
+    Else
+      ' remove last vbCrLf - the vbCrLf is at PosEndSection
+      NewsContents = Left(NewsContents, Len(NewsContents) - 2)
+    End If
+
+    ' Combine pre-section, new section And post-section data.
+    INIContents = Left(INIContents, PosSection-1) & _
+      NewsContents & Mid(INIContents, PosEndSection)
+  else'if PosSection>0 Then
+    ' Section Not found. Add section data at the end of file contents.
+    If Right(INIContents, 2) <> vbCrLf And Len(INIContents)>0 Then 
+      INIContents = INIContents & vbCrLf 
+    End If
+    INIContents = INIContents & "[" & Section & "]" & vbCrLf & _
+      KeyName & "=" & Value
+  end if'if PosSection>0 Then
+  PutFile FileName, INIContents
+End Sub
+
+
+' **************************************************************************
+' Function - GetINIString - Retrieves value from INI file
+' **************************************************************************
+Function GetINIString(IniContents, Section, KeyName, Default)
+  Dim PosSection, PosEndSection, sContents, Value, Found
+  
+  ' Find section
+  PosSection = InStr(1, INIContents, "[" & Section & "]", vbTextCompare)
+  If PosSection>0 Then
+    ' Section exists. Find end of section
+    PosEndSection = InStr(PosSection, INIContents, vbCrLf & "[")
+    ' Is this last section?
+    If PosEndSection = 0 Then PosEndSection = Len(INIContents)+1
+    
+    ' Separate section contents
+    sContents = Mid(INIContents, PosSection, PosEndSection - PosSection)
+
+    If InStr(1, sContents, vbCrLf & KeyName & "=", vbTextCompare)>0 Then
+      Found = True
+      ' Separate value of a key.
+      Value = SeparateField(sContents, vbCrLf & KeyName & "=", vbCrLf)
+    End If
+  End If
+  If isempty(Found) Then Value = Default
+  GetINIString = Value
+End Function
+
+
+' **************************************************************************
+' Function - SeparateField - Extracts field from sFrom, between sStart
+'       and sEnd
+' **************************************************************************
+Function SeparateField(ByVal sFrom, ByVal sStart, ByVal sEnd)
+  Dim PosB: PosB = InStr(1, sFrom, sStart, 1)
+  If PosB > 0 Then
+    PosB = PosB + Len(sStart)
+    Dim PosE: PosE = InStr(PosB, sFrom, sEnd, 1)
+    If PosE = 0 Then PosE = InStr(PosB, sFrom, vbCrLf, 1)
+    If PosE = 0 Then PosE = Len(sFrom) + 1
+    SeparateField = Mid(sFrom, PosB, PosE - PosB)
+  End If
+End Function
+
+
+' **************************************************************************
+' Function - GetFile - Loads INI file
+' **************************************************************************
+Function GetFile(ByVal FileName)
+  Dim FS: Set FS = CreateObject("Scripting.FileSystemObject")
+
+  On Error Resume Next
+
+  GetFile = FS.OpenTextFile(FileName).ReadAll
+End Function
+
+
+' **************************************************************************
+' Function - PutFile - Saves INI file
+' **************************************************************************
+Function PutFile(ByVal FileName, ByVal Contents)
+  
+  Dim FS: Set FS = CreateObject("Scripting.FileSystemObject")
+
+  Dim OutStream: Set OutStream = FS.OpenTextFile(FileName, 2, True)
+  OutStream.Write Contents
+End Function
+
