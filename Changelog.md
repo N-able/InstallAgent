@@ -1,7 +1,7 @@
 # Changelog
 
 | Version | Date | Notes |
-|--------|--------|
+|---------|------|-------|
 | 1.00 | 20120928 | First release |
 | 1.10 | 20121002 |	Allows the repair process to run for seven mins <br/>Recognises agent installs onto non C drives and amends verify stage accordingly |
 | 2.00 | 20121022| Amended verify fail time to be 180 secs instead of 30 secs<br/>Clarified that SXS path needs to be a mapped drive, not a UNC path<br/>Added support for proxy.cfg file which contains proxy configuration to be used when installing the agent<br/>Fixed null string bug in proxy code (thanks, Jon Czerwinski)<br/>Added visible msgbox when ping test fails in interactive mode
