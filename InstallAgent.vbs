@@ -39,6 +39,9 @@
 '				Cleaned up agent checks to eliminate redundant calls to StripAgent
 '				Remove STARTUP|SHUTDOWN mode
 '
+' 4.21 20170126
+'				Error checking for missing or empty configuration file.
+'
 
 Option Explicit
 
@@ -134,6 +137,12 @@ strWindowsFolder = objShell.ExpandEnvironmentStrings("%WINDIR%")
 ' Get contents of the INI file As a string
 DIM strScriptPath : strScriptPath = Left(WScript.ScriptFullName,InStrRev(WScript.ScriptFullName,"\"))
 DIM INIContents : INIContents = GetFile(strScriptPath & strINIFile)
+
+' If the configuration file is empty or missing, exit with an error
+If Len(INIContents) = 0 Then
+	objShell.LogEvent evtError, "The agent installer script could not load the configuration file " & strScriptPath & strINIFile & "."	
+	DIRTYQUIT errInternal
+End If
 
 ' ***********************************************************************************************************************************************************
 ' Load program values from INI file
