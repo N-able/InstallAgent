@@ -29,7 +29,7 @@ The script provides:
 -   Very verbose logging into the Application event log
 
 
-
+**
 -   Customisable for your environment
 
 
@@ -54,7 +54,7 @@ If you use this in your environment I’d love to hear from you!
 
 ### InstallAgent.ini
 
-
+**Be sure to edit InstallAgent.ini with a plain text editor, such as Notepad.  Other advanced text editors are known to corrupt the .ini file.**
 
 All the normal partner-customized parameters are in the file *AgentInstall.ini.*
 
