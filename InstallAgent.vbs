@@ -42,11 +42,14 @@
 ' 4.21 20170126
 '				Error checking for missing or empty configuration file.
 '
+' 4.22 20170621
+'				Close case where service is registered but executable is missing.
+'
 
 Option Explicit
 
 ' Script Version
-CONST strVersion = "4.21"		' The current version of this script
+CONST strVersion = "4.22"		' The current version of this script
 
 ' Declare and define our variables and objects
 Dim objFSO, output, objReg, objArguments, objArgs, objNetwork, objWMI, objShell, objEnv, objAppsList
@@ -789,6 +792,15 @@ Sub GetAgentPath
 			strAgentConfig = Left(strAgentPath, instr(1, strAgentPath, "\bin", vbTextCompare)) + "config\"
 			objShell.LogEvent evtInfo, "The agent installer script found the Windows Agent Service's path to be:  " & strAgentBin
 		Next
+		
+		'Check for service exists, but EXE is not present (some incomplete removal has occurred and agent requires reinstall)
+		If Not objFSO.FileExists(strAgentBin) Then
+			'Agent EXE not found, assume its not installed.
+			WRITETOCONSOLE("Agent service found, but EXE not present. Deleting service and reset agent status to not installed." & vbCrLf)
+			strAgentBin = ""
+			strAgentPath = ""
+			objShell.LogEvent evtInfo, "The agent installer script found the Windows Agent service, but not the EXE."
+		End If
 	Else
 		' The agent isn't installed - no service was returned by the WQL query.  An empty string here indicates no agent installed on the device to other sections of this script
 		strAgentBin = ""
