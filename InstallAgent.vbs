@@ -45,6 +45,8 @@
 ' 4.22 20170621
 '				Close case where service is registered but executable is missing.
 '
+' 4.23 20171002
+'				Bug fix on checking executable path - thanks Rod Clark
 
 Option Explicit
 
@@ -794,7 +796,7 @@ Sub GetAgentPath
 		Next
 		
 		'Check for service exists, but EXE is not present (some incomplete removal has occurred and agent requires reinstall)
-		If Not objFSO.FileExists(strAgentBin) Then
+		If Not objFSO.FileExists(strAgentPath) Then
 			'Agent EXE not found, assume its not installed.
 			WRITETOCONSOLE("Agent service found, but EXE not present. Deleting service and reset agent status to not installed." & vbCrLf)
 			strAgentBin = ""

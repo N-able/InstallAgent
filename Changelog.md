@@ -28,3 +28,4 @@
 | 4.20 | 20170119 | Moved partner-configured parameters out to AgentInstall.ini<br />Removed Windows 2000 checks<br />Cleaned up agent checks to eliminate redundant calls to StripAgent<br />Remove STARTUP / SHUTDOWN mode
 | 4.21 | 20170126 |	Error checking for missing or empty configuration file. |
 | 4.22 | 20170621 |	Close case where service is registered but executable is missing. |
+| 4.23 | 20171002 | Bug fix on checking executable path - thanks Rod Clark |
