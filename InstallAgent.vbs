@@ -51,7 +51,7 @@
 Option Explicit
 
 ' Script Version
-CONST strVersion = "4.22"		' The current version of this script
+CONST strVersion = "4.23"		' The current version of this script
 
 ' Declare and define our variables and objects
 Dim objFSO, output, objReg, objArguments, objArgs, objNetwork, objWMI, objShell, objEnv, objAppsList
