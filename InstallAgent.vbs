@@ -47,22 +47,24 @@
 '
 ' 4.23 20171002
 '				Bug fix on checking executable path - thanks Rod Clark
+' 4.24 20171016
+'				Rebased on .NET 4.5.2; reorganized prerequisite checks
 
 Option Explicit
 
 ' Script Version
-CONST strVersion = "4.23"		' The current version of this script
+CONST strVersion = "4.24"		' The current version of this script
 
 ' Declare and define our variables and objects
 Dim objFSO, output, objReg, objArguments, objArgs, objNetwork, objWMI, objShell, objEnv, objAppsList
 Dim objCleanup, objServices, objInstallerProcess, objAgentInstaller, strAgentInstallerShortName, objMarkerFile
 Dim objQuery, objDotNetInstaller, objFile, objExecObject, objWIC, colService, objCmd
-Dim strComputer, strAgentPath, strAgentBin, strCheckForFilme, strMSIflags, strNETversion, strInstallFlags
+Dim strComputer, strAgentPath, strAgentBin, strCheckForFilme, strMSIflags, strInstallFlags
 Dim strSiteID, strDomain, strInstallSource, strMessage, strWindowsFolder, strInstallCommand, strLine
 Dim strAgentConfig, strApplianceConfig, arrApplianceConfig, strServerConfig
-Dim strKey, strType, strValue, strExitComment
+Dim strKey, strType, strValue, strExitComment, OSVersion, strOSVersion
 Dim strOperatingSystem, strAltInstallSource, strTemp, strProxyString
-Dim strBaselineListOfPIDs, strInstallationListOfPIDs, strInstallProxyString, strArchitecture, strDotNetInstallerFile
+Dim strBaselineListOfPIDs, strInstallationListOfPIDs, strInstallProxyString, strArchitecture
 Dim strOperatingSystemSKU, strNoNetwork, strPSValue, strWICinstaller, strString, strDecimal, strSpin
 Dim bolInteractiveMode, bolAgentServiceFound, bolAgentMaintServiceFound
 Dim intServicePackLevel, intPSValue, intValue
@@ -75,16 +77,18 @@ CONST evtError = 1
 CONST evtWarning = 2 
 CONST evtInfo = 4 
 CONST strDotNetRegKey = "V4\Full"
+CONST strDotNetInstallerFile = "NDP452-KB2901907-x86-x64-AllOS-ENU.exe"
+CONST minDotNetRelease = 379893	' This release corresponds to .NET 4.5.2
 CONST strDummyDom = "UNKNOWN.TIM"
 CONST strRegBase = "N-Central"	' Change this to "Tim Wiser" to use the traditional registry location for monitoring
 								' Replace "InstallAgentStatus.amp" with "InstallAgentStatus - Tim Wiser.amp"
 
 ' Exit code definitions
 CONST errInternal = 0			' Internal error
-CONST errPrereq = 1 			' .NET4 not installed / Windows 2000 detected / Windows XP not at SP3
+CONST errPrereq = 1 			' .NET 4.5.2 not installed / OS earlier than Windows 7 detected
 CONST errNetwork = 2 			' No external network access detected
 CONST errSource = 3 			' Install source is missing / wrong version
-CONST errNET4 = 4 				' Failure to install .NET4
+CONST errNET4 = 4 				' Failure to install .NET 4.5.2
 CONST errAgent = 5 				' Failure to install agent
 CONST errZombie = 6 			' Installed agent higher version than source
 CONST errNormal = 10 			' Normal execution
@@ -101,11 +105,11 @@ runState = errNormal			' Tracks the error condition in the script and determines
 ' Define some constants for your environment
 CONST bolWarningsOn = False					' If the agent fails, the user gets a popup message.  Change this to False if you don't want them to be informed
 
-CONST strPingAddress = "8.8.8.8"				' Address to ping to check connectivity.  Usually this will be your N-central server's FQDN
-CONST strSOAgentEXE = "SOAgentSetup.exe"			' The name of the SO-level agent installer file that is stored within NETLOGON\strAgentFolder
+CONST strPingAddress = "8.8.8.8"			' Address to ping to check connectivity.  Usually this will be your N-central server's FQDN
+CONST strSOAgentEXE = "SOAgentSetup.exe"	' The name of the SO-level agent installer file that is stored within NETLOGON\strAgentFolder
 
-CONST intPingTolerance = 20							' % value.  If you have networks that drop packets under normal conditions, raise this value
-CONST intPingTestCount = 10							' Increase this to make the script perform more pings during the Connectivity test
+CONST intPingTolerance = 20					' % value.  If you have networks that drop packets under normal conditions, raise this value
+CONST intPingTestCount = 10					' Increase this to make the script perform more pings during the Connectivity test
 ' ***********************************************************************************************************************************************************
 
 
@@ -220,8 +224,7 @@ If runState <> errNormal Then DIRTYQUIT runState End If	' Placeholder until chun
 GetOSInfo
 
 ' Verify Operation System prerequisites.
-' Cannot install on Windows 2000 due to .NET requirements
-' Windows XP must be at SP3
+' Cannot install on Windows 2000, Windows XP or Server 2003 due to .NET requirements and NCentral Agent support
 VerifyOSPrereq
 If runState <> errNormal Then DIRTYQUIT runState End If	' Placeholder until chunks are moved to subroutines
 
@@ -276,25 +279,8 @@ GetAgentPath
 ' Detect and warn if PowerShell 2 is not installed
 CheckPowerShell
 
-' If the script is running in interactive mode, check to see if the agent is installed and bug out if it is
-If (bolInteractiveMode = True And strAgentBin <> "") Then
-	objShell.LogEvent evtSuccess, "The agent installer found that the agent is already installed on this device at " & strAgentBin
-	response = MsgBox("The agent is installed on this device at " & strAgentBin & vbCRLF & vbCRLF & "Do you want to uninstall it?  This can take up to five minutes to complete.", vbYesNo+vbQuestion, strBranding)
-	If response = vbNo Then
-		CleanQuit
-	Else
-		If DOTNETPRESENT(strDotNetRegKey)="NOT_INSTALLED" Then
-			' The AgentCleanup4 utility requires .NET 4 so if it's not installed, let's just try a clean removal using Windows Installer
-			objShell.LogEvent evtWarning, "The agent installer script initiated a clean removal of the existing agent using MSIEXEC on user request."
-			Call objShell.Run("msiexec /X {07BA9781-16A5-4066-A0DF-5DBA3484FDB2} /passive /norestart",,True)
-		Else
-			' Do an uninstall using AgentCleanup4.exe as we have .NET 4 installed on the device
-			objShell.LogEvent evtWarning, "The agent installer script initiated a cleanup of the existing agent on user request."
-			Call objShell.Run("cmd /c agentcleanup4.exe writetoeventlog",,True)
-		End If
-	End If
-	CleanQuit
-End If
+' Check for and install .NET 4.5.2
+VerifyDotNet
 
 ' Process agent
 ProcessAgent
@@ -486,16 +472,28 @@ End Sub ' CheckPowerShell
 ' 
 ' *****************************************************************************
 Sub GetOSInfo
+
+Dim VersionParts, intOSVersionMajor, intOSVersionMinor
+
 	' Detect the OS and type
 	Set objQuery = objWMI.ExecQuery("SELECT * FROM Win32_OperatingSystem WHERE Caption LIKE '%Windows%'")
 	For Each item In objQuery
 		strOperatingSystem = item.Caption
 		intServicePackLevel = item.ServicePackMajorVersion
-		If (Instr(strOperatingSystem, "2008")>0 Or Instr(strOperatingSystem, "2012")>0) Then
+		
+		VersionParts = Split(item.Version,".")
+		intOSVersionMajor = VersionParts(0)
+		intOSVersionMinor = VersionParts(1)
+		strOSVersion = intOSVersionMajor & "." & intOSVersionMinor
+		OSVersion = CDbl(strOSVersion)
+		
+		intServicePackLevel = item.ServicePackMajorVersion
+		
+		If (OSVersion > 6.0) Then
 			strOperatingSystemSKU = item.OperatingSystemSKU
 		Else
 			strOperatingSystemSKU = 0
-		End If
+		End If		
 	Next
 End Sub 'GetOSInfo
 
@@ -508,17 +506,114 @@ End Sub 'GetOSInfo
 ' 
 ' *****************************************************************************
 Sub VerifyOSPrereq
-	WRITETOCONSOLE(strOperatingSystem & " detected" & vbCRLF)
+	WRITETOCONSOLE(strOperatingSystem & "detected" & vbCRLF)
 		
-	' Warn if the device is running Windows XP and isn't patched to SP3 level
-	If Instr(strOperatingSystem, "XP")>0 Then
-		If intServicePackLevel < 3 Then
-			objShell.LogEvent evtError, "The agent installer script has detected that this device is running Windows XP but is not patched with Service Pack 3.  This will prevent .NET 4 from installing which will in turn prevent the agent being able to be deployed or maintained.  Please install Service Pack 3 on this device.  The script will now terminate."
-			WRITETOCONSOLE("Checking Windows XP SP3 .......... failed!" & vbCRLF & vbCRLF & "Please install Service Pack 3 on this computer." & vbCRLF)
-			runState = errPrereq
-		End If
+	' Error if the device is running an unsupported operating system
+	If OSVersion < 6.1 Then
+		objShell.LogEvent evtError, "The agent installer script has detected that this device is running on an unsupported Operating System. The script will now terminate."
+		WRITETOCONSOLE("Checking Operating System .......... failed!" & vbCRLF & vbCRLF)
+		runState = errPrereq
 	End If
 End Sub ' VerifyOSPrereq
+
+
+' *****************************************************************************
+' Sub - VerifyDotNet - Check for .NET 4.5.2 and installs if it missing
+' 
+' *****************************************************************************
+Sub VerifyDotNet
+	' Check for .NET Framework v4.5.2
+	If DOTNETPRESENT(strDotNetRegKey) = "NOT_INSTALLED" Then
+	
+		' Firstly, check to see if we're running on a Core installation of Windows.  We cannot install the .NET Framework onto Server Core automatically 
+		Select Case strOperatingSystemSKU
+			Case 12, 39, 14, 41, 13, 40, 29	:	WRITETOCONSOLE(vbCRLF & "Server Core detected!" & vbCRLF & "Please refer to the Event Log for futher details" & vbCRLF)
+												objShell.LogEvent evtError, "The agent installer script detected that this device is running Windows Server Core. With the agent requiring .NET 4.5.2 this script does not support automatic installation on Windows Server Core."
+												DIRTYQUIT errPrereq
+		End Select
+		
+		' Check to see if the WindowsCodecs.dll file is present, which is an indication of the Windows Imaging Components feature which is a pre-req for .NET 4
+		strWindowsFolder = objShell.ExpandEnvironmentStrings("%WINDIR%")
+		If (objFSO.FileExists(strWindowsFolder & "\System32\WindowsCodecs.dll")=False) Then
+			' WIC is not installed, so let's see if we can install it ourselves from strInstallSource
+			Select Case strArchitecture
+				Case "AMD64"	: strWICinstaller = "wic_x64_enu.exe"
+				Case "x86"		: strWICinstaller = "wic_x86_enu.exe"
+			End Select
+			
+			If objFSO.FileExists(strInstallSource & strWICinstaller) = True Then
+				' Install it
+				objShell.LogEvent evtError, "The agent installer script has detected that Windows Imaging Components is not installed on this device and will attempt to install it from " & strInstallSource & strWICinstaller
+				Set objWIC = objShell.Exec("cmd /c " & strInstallSource & strWICinstaller & " /quiet")
+				Do While objWIC.Status = 0
+					WRITETOCONSOLE("Installing Windows Imaging Components " & strArchitecture & " ... " & SPIN & vbCR)
+					WScript.Sleep 100
+				Loop
+				WRITETOCONSOLE("Installing Windows Imaging Components " & strArchitecture & " ... done!" & vbCR)
+			Else
+				' We can't install WIC as the required file isn't present in strInstallSource
+				objShell.LogEvent evtWarning, "The agent installer script has detected that Windows Imaging Components may not be installed on this device.  For this reason, Microsoft .NET Framework 4.5.2 may fail to install.  You can download the 32-bit WIC installer from http://www.microsoft.com/en-us/download/details.aspx?id=32.  The script is capable of installing WIC automatically as long as the WIC_x86_enu.exe and WIC_x64_enu.exe files are present inside " & strInstallSource
+			End If
+		End If
+			
+		objShell.LogEvent evtWarning, "The agent installer script detected that Microsoft .NET Framework 4.5.2 Full Package is not currently installed.  This needs to be installed before the agent can be installed.  The script will now attempt to install Microsoft .NET Framework 4.5.2 Full Package on this device."
+		
+		objEnv("SEE_MASK_NOZONECHECKS") = 1
+		
+		WRITETOCONSOLE("Checking for .NET v4 installer ... ")
+		If (objFSO.FileExists(strInstallSource & strDotNetInstallerFile) = False) Then
+			' The .NET installer file that we need to run doesn't exist, so error out
+			strMessage = "The agent installer could not install Microsoft .NET Framework 4.5.2 as the installer file, " & strDotNetInstallerFile & ", does not exist at " & strInstallSource & strDotNetInstallerFile & ".  Please download the installer from N-central and try again, or install Microsoft .NET Framework 4.5.2 manually on this device.  The script will now terminate."
+			If strDotNetInstallerFile = "dotNetFx40_Full_x86_x64_SC.exe" Then strMessage = strMessage & vbCRLF & vbCRLF & "NOTE:  As this server is running a Core edition of Windows you will need to download the '.NET Framework 4 Server Core - x64' installer from within N-central and store it in the " & strInstallSource & " folder.  Once this is done, .NET should install automatically the next time this script runs."
+			If bolInteractiveMode = True Then
+				MsgBox strMessage, vbCritical + vbOKOnly, strBranding
+			End If
+			objShell.LogEvent evtError, strMessage
+			WRITETOCONSOLE("failed!" & vbCRLF)
+			DIRTYQUIT errPrereq
+		Else
+			WRITETOCONSOLE("done!" & vbCRLF)
+		End If
+			
+		' Copy the .NET installer file locally before installation
+		WRITETOCONSOLE("Copying .NET V4.5.2 installer ........ ")
+		objFSO.CopyFile strInstallSource & strDotNetInstallerFile, strTemp & "\dotnetfx.exe"
+		If (objFSO.FileExists(strTemp & "\dotnetfx.exe"))=True Then 
+			objShell.LogEvent evtSuccess, "The agent installer script successfully copied the Microsoft .NET 4.5.2 Full Package installer for " & strArchitecture & ", " & strDotNetInstallerFile & " into " & strTemp & " as dotnetfx.exe"
+			WRITETOCONSOLE("done!" & vbCRLF)
+		Else
+			objShell.LogEvent evtError, "The agent installer script could not copy " & strDotNetInstallerFile & " into " & strTemp & " as dotnetfx.exe so cannot continue with the installation.  Check file permissions and that the " & strDotNetInstallerFile & " file exists within " & strInstallSource
+			WRITETOCONSOLE("failed!" & vbCRLF)
+			DIRTYQUIT errPrereq
+		End If
+		
+		' Now start the installer up from the local copy
+		objShell.LogEvent evtSuccess, "The agent installer script started the installation of Microsoft .NET Framework 4.5.2 Full Package on this device."
+		Set objDotNetInstaller = objShell.Exec(strTemp & "\dotnetfx.exe /passive /norestart /l c:\dotnetsetup.htm" & Chr(34))
+		Do Until objDotNetInstaller.Status <> 0
+			WRITETOCONSOLE("Installing .NET V4.5.2 Full Package .. " & SPIN & vbCR)
+			WScript.Sleep 100
+		Loop
+		
+		objEnv.Remove("SEE_MASK_NOZONECHECKS")
+		' We usually terminate here, as .NET seems to kill off any script that calls it for some reason.  The code below is included in case we're running
+		' in interactive mode or to support rare cases where the .NET installer allows the script to continue running.
+		If DOTNETPRESENT(strDotNetRegKey) = "NOT_INSTALLED" Then
+			' .NET failed to install, so pop a message up and log an event, then exit
+			WRITETOCONSOLE("Installing .NET V4.5.2 Full Package ... failed!" & vbCRLF)
+			strMessage = "The agent installer script failed to install Microsoft .NET Framework 4.5.2 Full Package on this device." 
+			objShell.LogEvent evtError, strMessage
+			Msgbox strMessage & vbCRLF & vbCRLF & strContactAdmin, vbOKOnly + vbCritical, strBranding
+			DIRTYQUIT errNET4
+		Else
+			' .NET 4 Full Package installed successfully
+			WRITETOCONSOLE("Installing .NET V4.5.2 Full Package .. done!" & vbCRLF)
+			objShell.LogEvent evtSuccess, "The agent installer script successfully installed Microsoft .NET Framework 4.5.2 Full Package on this device."
+		End If
+	Else
+		objShell.LogEvent evtSuccess, "The agent installer script found that the Microsoft .NET Framework 4.5.2 Full Package is installed on this device."
+	End If
+End Sub ' VerifyDotNet
 
 
 ' *****************************************************************************
@@ -545,110 +640,6 @@ Sub ProcessAgent
 				CleanQuit
 			End If
 		End If
-
-		' Check for .NET Framework v4
-		If DOTNETPRESENT(strDotNetRegKey) = "NOT_INSTALLED" Then
-		
-			' Decide which installer to use (deprecated Nov 2012, we always install the same one now)
-			strDotNetInstallerFile = ""
-			strTemp = objShell.ExpandEnvironmentStrings("%TEMP%")
-			strArchitecture = objShell.ExpandEnvironmentStrings("%PROCESSOR_ARCHITECTURE%")
-			Select Case strArchitecture
-				Case "AMD64"	: strDotNetInstallerFile = "dotNetFx40_Full_x86_x64.exe"
-				Case "x86"		: strDotNetInstallerFile = "dotNetFx40_Full_x86_x64.exe"		' Originally dotNetFx40_Full_x86.exe, but the 64 bit includes 32 bit support as well
-			End Select
-			
-			' Firstly, check to see if we're running on a Core installation of Windows.  We cannot install the .NET Framework onto Server Core automatically 
-			Select Case strOperatingSystemSKU
-				Case 12, 39, 14, 41, 13, 40, 29	:	WRITETOCONSOLE(vbCRLF & "Server Core detected!" & vbCRLF & "Please refer to the Event Log for futher details" & vbCRLF)
-													objShell.LogEvent evtError, "The agent installer script detected that this device is running Windows Server Core and that Microsoft .NET Framework 4 is not currently installed.  This needs to be installed before the agent can be installed but the script is unable to install it automatically." & vbCRLF & vbCRLF & "Please install the .NET Framework 4 for Server Core from http://www.microsoft.com/en-us/download/details.aspx?id=22833 or from within N-central and run the script again."
-													strDotNetInstallerFile = "dotNetFx40_Full_x86_x64_SC.exe"
-													DIRTYQUIT errPrereq
-			End Select
-			
-			' Check to see if the WindowsCodecs.dll file is present, which is an indication of the Windows Imaging Components feature which is a pre-req for .NET 4
-			strWindowsFolder = objShell.ExpandEnvironmentStrings("%WINDIR%")
-			If (objFSO.FileExists(strWindowsFolder & "\System32\WindowsCodecs.dll")=False) Then
-				' WIC is not installed, so let's see if we can install it ourselves from strInstallSource
-				Select Case strArchitecture
-					Case "AMD64"	: strWICinstaller = "wic_x64_enu.exe"
-					Case "x86"		: strWICinstaller = "wic_x86_enu.exe"
-				End Select
-				
-				If objFSO.FileExists(strInstallSource & strWICinstaller) = True Then
-					' Install it
-					objShell.LogEvent evtError, "The agent installer script has detected that Windows Imaging Components is not installed on this device and will attempt to install it from " & strInstallSource & strWICinstaller
-					Set objWIC = objShell.Exec("cmd /c " & strInstallSource & strWICinstaller & " /quiet")
-					Do While objWIC.Status = 0
-						WRITETOCONSOLE("Installing Windows Imaging Components " & strArchitecture & " ... " & SPIN & vbCR)
-						WScript.Sleep 100
-					Loop
-					WRITETOCONSOLE("Installing Windows Imaging Components " & strArchitecture & " ... done!" & vbCR)
-				Else
-					' We can't install WIC as the required file isn't present in strInstallSource
-					objShell.LogEvent evtWarning, "The agent installer script has detected that Windows Imaging Components may not be installed on this device.  For this reason, Microsoft .NET Framework 4 may fail to install.  You can download the 32-bit WIC installer from http://www.microsoft.com/en-us/download/details.aspx?id=32.  The script is capable of installing WIC automatically as long as the WIC_x86_enu.exe and WIC_x64_enu.exe files are present inside " & strInstallSource
-				End If
-			End If
-			
-			
-			objShell.LogEvent evtWarning, "The agent installer script detected that Microsoft .NET Framework 4 Full Package is not currently installed.  This needs to be installed before the agent can be installed.  The script will now attempt to install Microsoft .NET Framework 4 Full Package on this device."
-			
-			objEnv("SEE_MASK_NOZONECHECKS") = 1
-			
-			WRITETOCONSOLE("Checking for .NET v4 installer ... ")
-			If (objFSO.FileExists(strInstallSource & strDotNetInstallerFile) = False) Then
-				' The .NET installer file that we need to run doesn't exist, so error out
-				strMessage = "The agent installer could not install Microsoft .NET Framework 4 as the installer file, " & strDotNetInstallerFile & ", does not exist at " & strInstallSource & strDotNetInstallerFile & ".  Please download the installer from N-central and try again, or install Microsoft .NET Framework 4 manually on this device.  The script will now terminate."
-				If strDotNetInstallerFile = "dotNetFx40_Full_x86_x64_SC.exe" Then strMessage = strMessage & vbCRLF & vbCRLF & "NOTE:  As this server is running a Core edition of Windows you will need to download the '.NET Framework 4 Server Core - x64' installer from within N-central and store it in the " & strInstallSource & " folder.  Once this is done, .NET should install automatically the next time this script runs."
-				If bolInteractiveMode = True Then
-					MsgBox strMessage, vbCritical + vbOKOnly, strBranding
-				End If
-				objShell.LogEvent evtError, strMessage
-				WRITETOCONSOLE("failed!" & vbCRLF)
-				DIRTYQUIT errPrereq
-			Else
-				WRITETOCONSOLE("done!" & vbCRLF)
-			End If
-				
-			' Copy the .NET installer file locally before installation
-			WRITETOCONSOLE("Copying .NET v4 installer ........ ")
-			objFSO.CopyFile strInstallSource & strDotNetInstallerFile, strTemp & "\dotnetfx.exe"
-			If (objFSO.FileExists(strTemp & "\dotnetfx.exe"))=True Then 
-				objShell.LogEvent evtSuccess, "The agent installer script successfully copied the Microsoft .NET 4 Full Package installer for " & strArchitecture & ", " & strDotNetInstallerFile & " into " & strTemp & " as dotnetfx.exe"
-				WRITETOCONSOLE("done!" & vbCRLF)
-			Else
-				objShell.LogEvent evtError, "The agent installer script could not copy " & strDotNetInstallerFile & " into " & strTemp & " as dotnetfx.exe so cannot continue with the installation.  Check file permissions and that the " & strDotNetInstallerFile & " file exists within " & strInstallSource
-				WRITETOCONSOLE("failed!" & vbCRLF)
-				DIRTYQUIT errPrereq
-			End If
-			
-			' Now start the installer up from the local copy
-			objShell.LogEvent evtSuccess, "The agent installer script started the installation of Microsoft .NET Framework 4 Full Package on this device."
-			Set objDotNetInstaller = objShell.Exec(strTemp & "\dotnetfx.exe /passive /norestart /l c:\dotnetsetup.htm" & Chr(34))
-			Do Until objDotNetInstaller.Status <> 0
-				WRITETOCONSOLE("Installing .NET v4 Full Package .. " & SPIN & vbCR)
-				WScript.Sleep 100
-			Loop
-			
-			objEnv.Remove("SEE_MASK_NOZONECHECKS")
-			' We usually terminate here, as .NET seems to kill off any script that calls it for some reason.  The code below is included in case we're running
-			' in interactive mode or to support rare cases where the .NET installer allows the script to continue running.
-			If DOTNETPRESENT(strDotNetRegKey) = "NOT_INSTALLED" Then
-				' .NET failed to install, so pop a message up and log an event, then exit
-				WRITETOCONSOLE("Installing .NET v4 Full Package ... failed!" & vbCRLF)
-				strMessage = "The agent installer script failed to install Microsoft .NET Framework 4 Full Package on this device." 
-				objShell.LogEvent evtError, strMessage & vbCRLF & vbCRLF & "If this computer is running Windows XP then check that it is running SP3 and has Windows Installer 3.1 installed.  Please check other supported operating systems and pre-requisities with Microsoft at http://www.microsoft.com/en-gb/download/details.aspx?id=17718 and try again."
-				Msgbox strMessage & vbCRLF & vbCRLF & strContactAdmin, vbOKOnly + vbCritical, strBranding
-				DIRTYQUIT errNET4
-			Else
-				' .NET 4 Full Package installed successfully
-				WRITETOCONSOLE("Installing .NET v4 Full Package .. done!" & vbCRLF)
-				objShell.LogEvent evtSuccess, "The agent installer script successfully installed Microsoft .NET Framework 4 Full Package on this device."
-			End If
-		Else
-			objShell.LogEvent evtSuccess, "The agent installer script found that the Microsoft .NET Framework Full Package is installed on this device."
-		End If
-
 			
 		' Branch off for an install.  We no longer do a verify of the agent afterwards -  we assume that the agent is installed and do checks during the Function
 		INSTALLAGENT strSiteID, strDomain
@@ -681,8 +672,6 @@ Sub ProcessAgent
 			' The agent services are no longer present
 			INSTALLAGENT strSiteID, strDomain
 		End If
-			
-
 	End IF
 End Sub ' ProcessAgent
 
@@ -749,7 +738,6 @@ Function INSTALLAGENT(strSiteID, strDomain)
 	Else
 		objShell.LogEvent evtSuccess, "The agent installer detected that the Windows Agent Maintenance service has registered on this computer.  The agent is now installed and will register in N-central shortly."
 	End If
-	
 End Function
 
 
@@ -757,16 +745,20 @@ End Function
 ' Function - DotNetPresent - Checks to see if .NET Framework of a particular version is installed
 ' ***********************************************************************************************
 Function DOTNETPRESENT(strReqDotNetKey)
-
-	objReg.GetDWORDValue HKEY_LOCAL_MACHINE, "SOFTWARE\Microsoft\NET Framework Setup\NDP\" & strReqDotNetKey, "Install", strNETversion
-	If strNETversion <> "" Then
+	Dim DotNETRelease, strNETversion
+	
+	objShell.LogEvent evtInfo, "Checking the .NET Framework to determine whether release " & minDotNetRelease & " is installed."
+	
+	objReg.GetDWORDValue HKEY_LOCAL_MACHINE, "SOFTWARE\Microsoft\NET Framework Setup\NDP\" & strReqDotNetKey, "Release", DotNETRelease
+	
+	If DotNETRelease >= minDotNetRelease Then
 		strNETversion = "INSTALLED"
 	Else
 		strNETversion = "NOT_INSTALLED"
 		
 		' Tell the interactive user that it's not installed
 		If bolInteractiveMode = True Then
-			msgbox ".NET Framework " & strReqDotNetKey & " is not installed on this device.", vbOKOnly + vbInformation, strBranding
+			msgbox ".NET Framework Release" & minDotNetRelease & " is not installed on this device.", vbOKOnly + vbInformation, strBranding
 		End If
 	End If
 	
@@ -818,7 +810,7 @@ End Sub ' GetAgentPath
 Function STRIPAGENT
 	If DOTNETPRESENT(strDotNetRegKey)="NOT_INSTALLED" Then
 		WRITETOCONSOLE(".NET 4 is not installed - cannot run cleanup" & vbCRLF)
-		objShell.LogEvent evtError, "The agent installer script cannot perform a cleanup of the agent as Microsoft .NET Framework 4 is not installed on this device.  The script will now terminate."
+		objShell.LogEvent evtError, "The agent installer script cannot perform a cleanup of the agent as Microsoft .NET Framework 4.5.2 is not installed on this device.  The script will now terminate."
 		DIRTYQUIT errPrereq
 	Else		
 		' Now we proceed and do a cleanup of the agent
@@ -840,12 +832,6 @@ End Function
 ' Sub function - VerifyAgent - Runs the agentcleanup command to verify the health of the agent
 ' ********************************************************************************************
 Sub VERIFYAGENT
-
-	' Check to see that we have .NET 4 installed, as we can only run a verify if it is
-	If DOTNETPRESENT(strDotNetRegKey)="NOT_INSTALLED" Then
-		objShell.LogEvent evtError, "The agent installer script cannot perform a verify of the agent as Microsoft .NET Framework 4 is not installed on this device.  It has probably been uninstalled.  The script will now terminate."
-		DIRTYQUIT errPrereq
-	End If
 
 	' Verify both Agent and Agent Maintenance services are present and running
 	If VerifyServices Then
@@ -1412,7 +1398,7 @@ Function DIRTYQUIT(intValue)
 	objReg.SetDWORDValue HKEY_LOCAL_MACHINE, "SOFTWARE\" & strRegBase & "\InstallAgent\", "LastOperation", intValue
 	Select Case intValue
 		Case 0	: strExitComment = "Internal error"
-		Case 1	: strExitComment = ".NET 4 ot installed / Win 2K detected / Win XP not at SP3"
+		Case 1	: strExitComment = ".NET 4.5.2 not installed / OS earlier than Windows 7"
 		Case 2	: strExitComment = "No external network access (cannot ping " & strPingAddress & ")"
 		Case 3	: strExitComment = "Install source is missing or wrong version"
 		Case 4	: strExitComment = "Failed to install .NET 4"

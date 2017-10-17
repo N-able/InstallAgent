@@ -10,7 +10,7 @@ The script provides:
 
 
 
--   Automatic installation of Microsoft .NET4 and Windows Imaging Components on devices that do not have it installed
+-   Automatic installation of Microsoft .NET 4.5.2 and Windows Imaging Components on devices that do not have it installed
 
 
 
@@ -132,7 +132,7 @@ These steps assume that you are using the defaults given in the tables above. If
 
 4. Download the WINDOWS AGENT file into the AGENT folder, renaming it as SOAGENTSETUP.EXE
 
-5. Download the .NET FRAMEWORK 4 – X64 file into the AGENT folder, leaving the filename unchanged
+5. Download the .NET FRAMEWORK 4.5.2 file into the AGENT folder, leaving the filename unchanged
 
 6. Download the Windows Imaging Component files, *wic\_x64\_enu.exe,* and *wic\_x86\_enu.exe,* from https://www.microsoft.com/en-us/download/details.aspx?id=1385 into the AGENT folder
 
@@ -150,7 +150,7 @@ You should now have a folder called AGENT that contains:
 
 -   LAUNCHINSTALLER.BAT
 
--   DOTNET40\_FULL\_X86\_X64.EXE
+-   NDP452-KB2901907-x86-x64-AllOS-ENU.EXE
 
 -   SOAGENTSETUP.EXE
 
@@ -198,7 +198,7 @@ To test the script you can either run it in an admin command prompt or double cl
 *CSCRIPT \\\\DOMAIN\\NETLOGON\\AGENT\\INSTALLAGENT.VBS /site:XXX*
 
 
--   On a device that doesn’t have the agent or .NET 4 installed, the script will install .NET and then install the agent. If the Windows Imaging Components software (a pre-req for .NET 4) is not installed, this is installed for you.
+-   On a device that doesn’t have the agent or .NET 4.5.2 installed, the script will install .NET and then install the agent. If the Windows Imaging Components software (a pre-req for .NET 4) is not installed, this is installed for you.
 
 
 
@@ -242,7 +242,7 @@ On a normal execution, the script exits with a code of 10. This is to remove any
 
 >
 
-> 1 NET4 not installed / Windows 2000 detected / Windows XP not at SP3 level
+> 1 NET4 not installed / OS earlier than Windows 7 detected
 
 >
 
@@ -254,7 +254,7 @@ On a normal execution, the script exits with a code of 10. This is to remove any
 
 >
 
-> 4 Failure to install .NET4
+> 4 Failure to install .NET 4.5.2
 
 >
 
