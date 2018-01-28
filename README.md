@@ -55,6 +55,7 @@ If you use this in your environment I’d love to hear from you!
 ### InstallAgent.ini
 
 **Be sure to edit InstallAgent.ini with a plain text editor, such as Notepad.  Other advanced text editors are known to corrupt the .ini file.**
+**The file must be saved with ASCII encoding.**
 
 All the normal partner-customized parameters are in the file *AgentInstall.ini.*
 

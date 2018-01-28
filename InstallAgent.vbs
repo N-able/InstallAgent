@@ -49,11 +49,14 @@
 '				Bug fix on checking executable path - thanks Rod Clark
 ' 4.24 20171016
 '				Rebased on .NET 4.5.2; reorganized prerequisite checks
+' 4.25 20180128
+'				Detect whether .ini file is saved with ASCII encoding.  Log error
+'				and exit if not.
 
 Option Explicit
 
 ' Script Version
-CONST strVersion = "4.24"		' The current version of this script
+CONST strVersion = "4.25"		' The current version of this script
 
 ' Declare and define our variables and objects
 Dim objFSO, output, objReg, objArguments, objArgs, objNetwork, objWMI, objShell, objEnv, objAppsList
@@ -142,9 +145,25 @@ Set objArgs = objArguments.Named
 
 strWindowsFolder = objShell.ExpandEnvironmentStrings("%WINDIR%")
 
+' Say we've started execution
+objShell.LogEvent evtSuccess, "The agent installer script being executed is version v" & strVersion
+objReg.SetStringValue HKEY_LOCAL_MACHINE, "SOFTWARE\" & strRegBase & "\InstallAgent\", "LastRun", "" & Now()
+objReg.SetStringValue HKEY_LOCAL_MACHINE, "SOFTWARE\" & strRegBase & "\InstallAgent\", "Version", strVersion
+objReg.SetStringValue HKEY_LOCAL_MACHINE, "SOFTWARE\" & strRegBase & "\InstallAgent\", "LastExitComment", "Script started successfully"
+WRITETOCONSOLE("Please wait whilst the " & strBranding & " agent is checked." & vbCRLF & vbCRLF)
 
-' Get contents of the INI file As a string
+' Check whether the INI file is saved with ASCII encoding.
+' If not, log an error and exit.
 DIM strScriptPath : strScriptPath = Left(WScript.ScriptFullName,InStrRev(WScript.ScriptFullName,"\"))
+Dim Encoding : Encoding = GetFileEncoding(strScriptPath & strINIFile)
+If (Encoding = "ASCII") Then
+	objShell.LogEvent evtInfo, "The configuration file " & strScriptPath & strINIFile & " is encoded as ASCII."	
+Else	
+	objShell.LogEvent evtError, "The configuration file " & strScriptPath & strINIFile & " is not ASCII encoded. The encoding was detected to be " & Encoding & "."	
+	DIRTYQUIT errInternal
+End If
+
+' Get contents of the INI file as a string.
 DIM INIContents : INIContents = GetFile(strScriptPath & strINIFile)
 
 ' If the configuration file is empty or missing, exit with an error
@@ -202,13 +221,6 @@ Else
 		End If
 	End IF
 End If
-
-' Say we've started execution
-objShell.LogEvent evtSuccess, "The agent installer script being executed is version v" & strVersion
-objReg.SetStringValue HKEY_LOCAL_MACHINE, "SOFTWARE\" & strRegBase & "\InstallAgent\", "LastRun", "" & Now()
-objReg.SetStringValue HKEY_LOCAL_MACHINE, "SOFTWARE\" & strRegBase & "\InstallAgent\", "Version", strVersion
-objReg.SetStringValue HKEY_LOCAL_MACHINE, "SOFTWARE\" & strRegBase & "\InstallAgent\", "LastExitComment", "Script started successfully"
-WRITETOCONSOLE("Please wait whilst the " & strBranding & " agent is checked." & vbCRLF & vbCRLF)
 
 ' Validate the mandatory parameter if we're running in non-interactive mode
 If bolInteractiveMode = False Then	
@@ -1309,6 +1321,96 @@ Function IsDowngrade(strCurrent, strProposed)
 	
 	IsDowngrade = Not bValid
 End Function ' IsDowngrade
+
+
+' ***********************************************************************
+' Function - GetFileEncoding - Returns the file encoding
+' Note - This function relies on Byte Order Mark, and I've seen how
+' Notepad++ can set UTF-8 encoding without using the BOM, so it's possible
+' for this script to display ASCII when the file encoding was set to UTF-8
+' without BOM.
+' ***********************************************************************
+Function GetFileEncoding(strFile)
+' Based on information from
+' https://en.wikipedia.org/wiki/Byte_order_mark
+'
+'Encoding       Hex BOM
+'========       =======
+'BOCU-1         FB EE 28
+'GB-18030       84 31 95 33
+'SCSU           0E FE FF
+'UTF-1          F7 64 4C
+'UTF-7          2B 2F 76 (38|39|2B|2F)
+'UTF-8          EF BB BF
+'UTF-16 (BE)    FE FF
+'UTF-16 (LE)    FF FE
+'UTF-32 (BE)    00 00 FE FF
+'UTF-32 (LE)    FF FE 00 00
+'UTF-EBCDIC     DD 73 66 73
+
+	Const adTypeBinary = 1
+	Const adTypeText   = 2
+
+	Dim i, intRC
+	Dim dicBOMs, objFSO, objStream
+	Dim strBOM, strHead, strType, strUTF7
+
+	intRC   = 0
+	strType = "Unknown"
+	strUTF7 = "38;39;2B;2F" ' Allowed values for 4th byte of UTF-7 BOM
+
+	Set objFSO = CreateObject( "Scripting.FileSystemObject" )
+	If Not objFSO.FileExists( strFile ) Then Syntax
+	Set objFSO = Nothing
+
+	Set dicBOMs = CreateObject( "Scripting.Dictionary" )
+	dicBOMs.Add "0000FEFF", "UTF-32 (BE)"
+	dicBOMs.Add "0EFEFF",   "SCSU"
+	dicBOMs.Add "2B2F76",   "UTF-7" ' First 3 bytes of BOM only, 4th byte can have several values
+	dicBOMs.Add "84319533", "GB-18030"
+	dicBOMs.Add "DD736673", "UTF-EBCDIC"
+	dicBOMs.Add "EFBBBF",   "UTF-8"
+	dicBOMs.Add "F7644C",   "UTF-1"
+	dicBOMs.Add "FBEE28",   "BOCU-1"
+	dicBOMs.Add "FEFF",     "UTF-16 (BE)"
+	dicBOMs.Add "FFFE",     "UTF-16 (LE)"
+	dicBOMs.Add "FFFE0000", "UTF-32 (LE)"
+
+	On Error Resume Next
+	Set objStream = CreateObject( "ADODB.Stream" )
+	objStream.Open
+	objStream.Type = adTypeBinary
+	objStream.LoadFromFile strFile
+	If Err Then intRC = 1
+	objStream.Position = 0
+	strHead = ""
+	For i = 0 To 3
+			strHead = strHead & UCase( Right( "0" & Hex( AscB( objStream.Read( 1 ) ) ), 2 ) )
+			If Err Then intRC = 1
+	Next
+	objStream.Close
+	Set objStream = Nothing
+	On Error Goto 0
+
+	If intRC = 1 Then strType = "Error"
+
+	For i = 8 To 4 Step -2 ' Try the longest match (4 bytes) first, next try 3 bytes, finally try 2 bytes
+			If strType = "Unknown" Then
+					strBOM = Left( strHead, i )
+					If dicBOMs.Exists( strBOM ) Then
+							If dicBOMs( strBOM ) = "UTF-7" Then
+									If InStr( strUTF7, Right( strHead, 2 ) ) Then strType = "UTF-7"
+							Else
+									strType = dicBOMs( strBOM )
+							End If
+					End If
+			End If
+	Next
+
+	If strType = "Unknown" Then strType = "ASCII"
+
+	GetFileEncoding = strType
+End Function
 
 
 ' *****************************************************************************
