@@ -31,3 +31,4 @@
 | 4.23 | 20171002 | Bug fix on checking executable path - thanks Rod Clark |
 | 4.24 | 20171016 | Rebased on .NET 4.5.2; reorganized prerequisite checks
 | 4.25 | 20180128 | Detect whether .ini file is saved with ASCII encoding.  Log error and exit if not.
+| 4.26 | 20181017 | Fixed strScriptPath bad declaration

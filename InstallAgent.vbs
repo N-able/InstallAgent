@@ -52,11 +52,12 @@
 ' 4.25 20180128
 '				Detect whether .ini file is saved with ASCII encoding.  Log error
 '				and exit if not.
+' 4.26 20181017	Fixed strScriptPath bad declaration
 
 Option Explicit
 
 ' Script Version
-CONST strVersion = "4.25"		' The current version of this script
+CONST strVersion = "4.26"		' The current version of this script
 
 ' Declare and define our variables and objects
 Dim objFSO, output, objReg, objArguments, objArgs, objNetwork, objWMI, objShell, objEnv, objAppsList
@@ -152,9 +153,18 @@ objReg.SetStringValue HKEY_LOCAL_MACHINE, "SOFTWARE\" & strRegBase & "\InstallAg
 objReg.SetStringValue HKEY_LOCAL_MACHINE, "SOFTWARE\" & strRegBase & "\InstallAgent\", "LastExitComment", "Script started successfully"
 WRITETOCONSOLE("Please wait whilst the " & strBranding & " agent is checked." & vbCRLF & vbCRLF)
 
+' Get contents of the INI file as a string.
+DIM strScriptPath : strScriptPath = Left(WScript.ScriptFullName,InStrRev(WScript.ScriptFullName,"\"))
+DIM INIContents : INIContents = GetFile(strScriptPath & strINIFile)
+
+' If the configuration file is empty or missing, exit with an error
+If Len(INIContents) = 0 Then
+	objShell.LogEvent evtError, "The agent installer script could not load the configuration file " & strScriptPath & strINIFile & "."	
+	DIRTYQUIT errInternal
+End If
+
 ' Check whether the INI file is saved with ASCII encoding.
 ' If not, log an error and exit.
-DIM strScriptPath : strScriptPath = Left(WScript.ScriptFullName,InStrRev(WScript.ScriptFullName,"\"))
 Dim Encoding : Encoding = GetFileEncoding(strScriptPath & strINIFile)
 If (Encoding = "ASCII") Then
 	objShell.LogEvent evtInfo, "The configuration file " & strScriptPath & strINIFile & " is encoded as ASCII."	
@@ -163,14 +173,6 @@ Else
 	DIRTYQUIT errInternal
 End If
 
-' Get contents of the INI file as a string.
-DIM INIContents : INIContents = GetFile(strScriptPath & strINIFile)
-
-' If the configuration file is empty or missing, exit with an error
-If Len(INIContents) = 0 Then
-	objShell.LogEvent evtError, "The agent installer script could not load the configuration file " & strScriptPath & strINIFile & "."	
-	DIRTYQUIT errInternal
-End If
 
 ' ***********************************************************************************************************************************************************
 ' Load program values from INI file
